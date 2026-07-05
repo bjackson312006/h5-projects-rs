@@ -20,9 +20,9 @@ Each folder is a project corresponding to ONE binary.
 - To deploy onto an embedded chip locally connected, run `cargo run --release`.
 - To format, run `cargo format`. 
 - To lint and check stuff, run `cargo clippy`.
-- To run a RTT terminal dedicated: `cargo embed --release rtt`
-- To run a GDB terminal dedicated: `cargo embed --release gdb`
-- To flash and leave code: `cargo embed --release`
+- To run a RTT terminal dedicated: `cargo embed2 --release rtt`
+- To run a GDB terminal dedicated: `cargo embed2 --release gdb`
+- To flash and leave code: `cargo embed2 --release`
 
 **At this time, many commands only work consistently inside the project (via `cd`)**
 The workspace's only purpose is to organize dependencies and build artificats, especially for rust-analyzer.

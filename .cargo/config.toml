@@ -6,4 +6,7 @@ target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "trace"
-PROBE_RS_EMBED_FILE = { value = "Embed.toml", relative = true }
+PROBE_RS_EMBED_CONFIG_FILE = { value = "Embed.toml", relative = true }
+
+[alias]
+embed2 = "embed --config-file=../Embed.toml"
