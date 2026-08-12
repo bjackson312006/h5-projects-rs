@@ -5,11 +5,12 @@ version = 4
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?rev=347e598632d577bb9ba9d56378acdc78a317c550#347e598632d577bb9ba9d56378acdc78a317c550"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?rev=0e0fab18e415c50ad90b85f9271faada0ca10ed0#0e0fab18e415c50ad90b85f9271faada0ca10ed0"
 dependencies = [
  "adbms6830b-macros",
  "arbitrary-int",
  "bitfield-struct",
+ "defmt 1.1.1",
  "device-driver",
  "embedded-hal-async",
 ]
@@ -17,7 +18,7 @@ dependencies = [
 [[package]]
 name = "adbms6830b-macros"
 version = "0.0.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?rev=347e598632d577bb9ba9d56378acdc78a317c550#347e598632d577bb9ba9d56378acdc78a317c550"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?rev=0e0fab18e415c50ad90b85f9271faada0ca10ed0#0e0fab18e415c50ad90b85f9271faada0ca10ed0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -820,6 +821,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "function_name"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1ab577a896d09940b5fe12ec5ae71f9d8211fff62c919c03a3750a9901e98a7"
+dependencies = [
+ "function_name-proc-macro",
+]
+
+[[package]]
+name = "function_name-proc-macro"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673464e1e314dd67a0fd9544abc99e8eb28d0c7e3b69b033bcff9b2d00b87333"
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1322,8 +1338,10 @@ dependencies = [
  "embassy-time",
  "embedded-hal-async",
  "embedded-hal-bus",
+ "function_name",
  "heapless",
  "panic-probe",
+ "variant_count",
 ]
 
 [[package]]
@@ -1615,6 +1633,17 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "variant_count"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17c13b28baa922722e35ded153b394d0247b4942b4ad54f85713a7de672cdf0e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
 
 [[package]]
 name = "vcell"

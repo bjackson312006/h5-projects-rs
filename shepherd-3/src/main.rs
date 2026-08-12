@@ -22,7 +22,8 @@ mod segments;
 
 use assign_resources::assign_resources;
 assign_resources! {
-    segment_isospi: SegmentIsospiResources {
+    /// Resources for segment IsoSPI Line A.
+    segment_isospi_linea: SegmentIsoSpiLineAResources {
         // Line A SPI config
         linea_spi: SPI1,
         linea_sck: PA5,
@@ -31,7 +32,9 @@ assign_resources! {
         linea_cs: PG10,
         linea_tx_dma: GPDMA1_CH0,
         linea_rx_dma: GPDMA1_CH1,
-
+    }
+    /// Resources for segment IsoSPI Line B.
+    segment_isospi_lineb: SegmentIsoSpiLineBResources {
         // Line B SPI config
         lineb_spi: SPI2,
         lineb_sck: PD3,
@@ -44,55 +47,12 @@ assign_resources! {
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) {
     info!("Initializing project...");
 
     let p = embassy_stm32::init(Config::default());
 
-    
+    let r = split_resources!(p);
 
-    let mut spi_config = spi::Config::default();
-    spi_config.frequency = mhz(1);
-
-    let spi = spi::Spi::new(
-        p.SPI1,
-        p.PA5,
-        p.PD7,
-        p.PA6,
-        p.GPDMA1_CH0,
-        p.GPDMA1_CH1,
-        Irqs,
-        spi_config,
-    );
-
-    let spi1_cs = gpio::Output::new(p.PG10, gpio::Level::High, gpio::Speed::High);
-    let spi_device = ExclusiveDevice::new(spi, spi1_cs, Delay).unwrap();
-    let mut line = Line::<_,>::new(spi_device, 10).expect("shoot!");
-
-    loop {
-        // Read all chips' StatusB registers.
-        let responses = match line.read_all::<StatusB>().await {
-            Ok(response) => response,
-            Err(_) => { warn!("evil error"); continue; }
-        };
-
-        // Loop through the returned responses for each chip.
-        for (index, response) in responses.iter().enumerate() {
-            // Check each chip for PEC errors.
-            let status_b = match response {
-                None => {
-                    warn!("PEC error when reading chip {}!!!", index);
-                    continue;
-                },
-                Some(status_b) => status_b,
-            };
-            
-            // Log the data from each chip's StatusB register.
-            info!("Chip {}: Digital power supply voltage: {} uV", index, status_b.vd().as_microvolts());
-            info!("Chip {}: Analog power supply voltage: {} uV", index, status_b.va().as_microvolts());
-            info!("Chip {}: VREF2 across resistor: {} uV", index, status_b.vres().as_microvolts());
-        }
-
-        Timer::after_millis(500).await;
-    }
+    spawner.spawn(segments::manager_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::manager_task()."));
 }
