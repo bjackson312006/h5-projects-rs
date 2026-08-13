@@ -5,20 +5,21 @@ version = 4
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?rev=0e0fab18e415c50ad90b85f9271faada0ca10ed0#0e0fab18e415c50ad90b85f9271faada0ca10ed0"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#cee84eec8875459a2da02909343e3fa554b4d824"
 dependencies = [
  "adbms6830b-macros",
  "arbitrary-int",
  "bitfield-struct",
  "defmt 1.1.1",
  "device-driver",
+ "embassy-time",
  "embedded-hal-async",
 ]
 
 [[package]]
 name = "adbms6830b-macros"
 version = "0.0.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?rev=0e0fab18e415c50ad90b85f9271faada0ca10ed0#0e0fab18e415c50ad90b85f9271faada0ca10ed0"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#cee84eec8875459a2da02909343e3fa554b4d824"
 dependencies = [
  "proc-macro2",
  "quote",
