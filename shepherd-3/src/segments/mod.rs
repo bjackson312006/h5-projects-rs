@@ -3,7 +3,7 @@
 //! There are 5 segments, each of which have two ADBMS6830B chips on them. So, there are 10 ADBMS6830B chips in total.
 
 use lines::{Line, LineId, Lines, LinesInitError, SpiError};
-use chips::{ChipData, ChipId, Chips, Counts};
+use chips::{ChipData, ChipId, Chips};
 use adbms6830b::{
     chip::registers::{WritableGroup, ReadableGroup},
     spi::{MAX_CHIPS, Error},
@@ -275,7 +275,8 @@ mod lines {
 
     /// ID for each line.
     #[derive(Copy, Clone, PartialEq)]
-    pub(in crate::segments) enum LineId {
+    #[derive(defmt::Format)]
+    pub enum LineId {
         /// Corresponds to `Lines::line_a`.
         LineA,
         /// Corresponds to `Lines::line_b`.
@@ -345,14 +346,6 @@ mod chips {
 
     }
 
-    /// Struct organizing information from a `Chips::counts()` call.
-    pub(in crate::segments) struct Counts {
-        /// Number of chips on Line A.
-        pub line_a: usize,
-        /// Number of chips on Line B.
-        pub line_b: usize,
-    }
-
     /// List of all the ADBMS6830B chips on the segments.
     pub(in crate::segments) struct Chips {
         /// List of each Chip, containing its data.
@@ -373,6 +366,19 @@ mod chips {
         /// Gets a mut reference to a specific chip and its data.
         pub(in crate::segments) const fn get_mut(&mut self, chip: ChipId) -> &mut ChipData {
             &mut self.chips[chip as usize]
+        }
+
+        /// Iterates over every chip in logical order.
+        ///
+        /// This exists so callers can say `for (id, data) in chips.iter()` instead of
+        /// enumerating and casting an index back into a `ChipId`.
+        pub(in crate::segments) fn iter(&self) -> impl Iterator<Item = (ChipId, &ChipData)> + '_ {
+            ChipId::LIST.into_iter().map(|id| (id, &self.chips[id as usize]))
+        }
+
+        /// Like `iter()` but with mutable references to each chip's data.
+        pub(in crate::segments) fn iter_mut(&mut self) -> impl Iterator<Item = (ChipId, &mut ChipData)> + '_ {
+            self.chips.iter_mut().enumerate().map(|(i, data)| (ChipId::LIST[i], data))
         }
     }
     impl IntoIterator for Chips {
@@ -526,13 +532,15 @@ impl Manager {
         let line_b = self.lines.get_mut(LineId::LineB).read_all::<G>().await;
 
         Responses {
-            // from_fn gets called for each chip index
-            chips: core::array::from_fn(|chip| {
-                let index = self.lines.split().lineindex_from_chipid(ChipId::LIST[chip]);
+            chips: ChipId::LIST.map(|chip_id| {
+                let index =
+                    self.lines.split().lineindex_from_chipid(chip_id);
+
                 let line_response = match index.line() {
                     LineId::LineA => &line_a,
                     LineId::LineB => &line_b,
                 };
+
                 match line_response {
                     Ok(line_response) => match line_response.device(index.index()) {
                         Some(data) => ChipResponse::Okay(data),
@@ -540,7 +548,7 @@ impl Manager {
                     },
                     Err(err) => ChipResponse::LineFailed(*err, index.line()),
                 }
-            })
+            }),
         }
     }
 
@@ -558,6 +566,16 @@ impl Manager {
         };
 
         Ok(Self { lines, chips })
+    }
+}
+
+/// # Debug
+/// 
+/// Extra `Manager` methods that provide debugging data.
+impl Manager {
+    /// Returns what `Line` each chip currently belongs to according to `Manager`'s line split state.
+    pub fn dbg_linesplit(&self) -> [LineId; ChipId::VARIANT_COUNT] {
+        ChipId::LIST.map(|chip_id| self.lines.split().line(chip_id))
     }
 }
 
