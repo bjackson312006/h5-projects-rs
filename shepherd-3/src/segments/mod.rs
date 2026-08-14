@@ -6,7 +6,7 @@ use lines::{Line, LineId, Lines, LinesInitError, SpiError};
 use chips::{ChipData, ChipId, Chips};
 use adbms6830b::{
     chip::registers::{WritableGroup, ReadableGroup},
-    spi::{MAX_CHIPS, Error},
+    spi::{MAX_CHIPS, Error, Response},
 };
 
 /// Private internal helper module for the Manager.
@@ -456,53 +456,58 @@ pub enum ChipResponse<G> {
     /// the failing line, can be found in the inner.
     LineFailed(Error<SpiError>, LineId),
 }
-impl<G> ChipResponse<G> {
-    /// Returns `true` if this `ChipResponse` is `Okay`.
-    pub fn is_okay(&self) -> bool {
-        matches!(*self, ChipResponse::Okay(_))
-    }
-
-    /// Returns `true` if this `ChipResponse` is `PecFailed`.
+/// Possible errors for each chip's response.
+#[derive(Copy, Clone)]
+pub enum ResponseError {
+    /// The entire line associated with this chip was not able to be
+    /// communicated with. This is not a chip-specific issue, since it applies to all
+    /// other chips that share this line. The SPI error for this chip's line, and the line ID of
+    /// the failing line, can be found in the inner.
+    LineFailed(Error<SpiError>, LineId),
+    /// This specific chip's PEC check failed.
+    /// 
+    /// Note: This error means that the `Line` this chip is on was able to be read successfully,
+    /// it's just that this specific chip's PEC check failed when processing the responses.
+    PecFailed,
+}
+impl ResponseError {
+    /// Returns `true` if this `ResponseError` is `PecFailed`.
     pub fn is_pecfailed(&self) -> bool {
-        matches!(*self, ChipResponse::PecFailed)
+        matches!(*self, ResponseError::PecFailed)
     }
 
-    /// Returns `true` if this `ChipResponse` is `LineFailed`.
+    /// Returns `true` if this `ResponseError` is `LineFailed`.
     pub fn is_linefailed(&self) -> bool {
-        matches!(*self, ChipResponse::LineFailed(..))
-    }
-
-    /// Returns `true` if this `ChipResponse` is `PecFailed` OR `LineFailed`.
-    pub fn is_failed(&self) -> bool {
-        matches!(*self, ChipResponse::LineFailed(..) | ChipResponse::PecFailed)
+        matches!(*self, ResponseError::LineFailed(..))
     }
 }
 
 /// Response when reading the segments.
 pub struct Responses<G> {
-    chips: [ChipResponse<G>; ChipId::VARIANT_COUNT],
+    chips: [Result<Response<G>, ResponseError>; ChipId::VARIANT_COUNT],
 }
+// u_Note: idea: instead of the chipresponse enum, we just do Result<Response<G>, ChipError>> or something (`Response` would just be the type from the driver)
 impl<G: ReadableGroup> Responses<G> {
     /// Lets you access the response of a particular chip.
-    pub fn device(&self, chip: ChipId) -> ChipResponse<G> { self.chips[chip as usize] }
+    pub fn device(&self, chip: ChipId) -> Result<Response<G>, ResponseError> { self.chips[chip as usize] }
 
     /// Lets you iterate over the chips whose PEC checks failed.
     pub fn pec_failures(&self) -> impl Iterator<Item = ChipId> + '_ {
-        ChipId::LIST.into_iter().filter(|&chip| self.chips[chip as usize].is_pecfailed())
+        ChipId::LIST.into_iter().filter(|&chip| self.chips[chip as usize].as_ref().err().map_or(false, |err| err.is_pecfailed()))
     }
 
     /// Lets you iterate over the chips whose `Line` was not able to be communicated with.
     pub fn line_failures(&self) -> impl Iterator<Item = ChipId> + '_ {
-        ChipId::LIST.into_iter().filter(|&chip| self.chips[chip as usize].is_linefailed())
+        ChipId::LIST.into_iter().filter(|&chip| self.chips[chip as usize].as_ref().err().map_or(false, |err| err.is_linefailed()))
     }
 
     /// Returns true if reads from all chips were successful.
     pub fn all_ok(&self) -> bool {
-        self.chips.iter().all(ChipResponse::is_okay)
+        self.chips.iter().all(|result| result.is_ok())
     }
 
     /// Lets you iterate over the returned data per chip.
-    pub fn iter(&self) -> impl Iterator<Item = (ChipId, ChipResponse<G>)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (ChipId, Result<Response<G>, ResponseError>)> + '_ {
         ChipId::LIST.into_iter().map(|chip| (chip, self.chips[chip as usize]))
     }
 }
@@ -568,11 +573,11 @@ impl Manager {
                 };
 
                 match line_response {
-                    Ok(line_response) => match line_response.device(index.index()) {
-                        Some(data) => ChipResponse::Okay(data),
-                        None => ChipResponse::PecFailed,
+                    Ok(okay_response) => match okay_response.device(index.index()) {
+                        Some(_) => Ok(*okay_response),
+                        None => Err(ResponseError::PecFailed),
                     },
-                    Err(err) => ChipResponse::LineFailed(*err, index.line()),
+                    Err(err) => Err(ResponseError::LineFailed(*err, index.line())),
                 }
             }),
         }
