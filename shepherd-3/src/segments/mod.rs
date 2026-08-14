@@ -2,7 +2,6 @@
 //! 
 //! There are 5 segments, each of which have two ADBMS6830B chips on them. So, there are 10 ADBMS6830B chips in total.
 
-use crate::SegmentIsoSpiLineAResources;
 use lines::{Line, LineId, Lines, LinesInitError, SpiError};
 use chips::{ChipData, ChipId, Chips, Counts};
 use adbms6830b::{
@@ -19,7 +18,8 @@ mod lines {
         gpio::Output,
         spi::{ Spi, mode::Master },
     };
-    use core::sync::atomic::{AtomicU32, Ordering};
+    use super::chips::ChipId;
+    use split::Split;
 
     embassy_stm32::bind_interrupts!(struct Irqs {
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
@@ -49,6 +49,135 @@ mod lines {
         DriverInitError(adbms6830b::spi::InitError),
     }
 
+    pub(in super) mod split {
+        use super::{ChipId, LineId};
+
+        pub struct Counts {
+            pub(in crate::segments::lines::split) line_a: usize,
+            pub(in crate::segments::lines::split) line_b: usize
+        }
+        impl Counts {
+            /// Number of chips on Line A.
+            pub fn line_a(&self) -> usize { self.line_a }
+            /// Number of chips on Line B.
+            pub fn line_b(&self) -> usize { self.line_b }
+
+        }
+
+        /// Represents a raw index on a Line. Basically this is literally
+        /// just an index from the POV of the Line.
+        /// 
+        /// This type can only be created by `lineindex_from_chipid()`. It is purely
+        /// just a structuring type for the return value of `lineindex_from_chipid()`.
+        /// Because of that, there's no constructor and should not ever be!
+        pub struct LineIndex {
+            /// The Line the index is on.
+            line: LineId,
+            /// The index.
+            ///
+            /// At this point the `ChipId` doesn't represent
+            /// a logical ChipId, it is simply the chip of
+            /// the chip from the POV of the line.
+            index: ChipId,
+        }
+        impl LineIndex {
+            /// The Line this index refers to.
+            pub const fn line(&self) -> LineId { self.line }
+            /// The position along this LineIndex's Line (as a raw index).
+            pub const fn index(&self) -> usize { self.index as usize }
+        }
+
+        pub struct Split {
+            split: Option<ChipId>,
+        }
+        impl Split {
+            /// Creates a new split.
+            /// 
+            /// `split` is the Chip at which the Lines are split.
+            /// 
+            /// `None` means that all chips are on Line A.
+            /// For `Some(chip)`, `chip` is the first chip at which Line B starts.
+            /// Examples:
+            /// - None: There is no split. All chips are on Line A.
+            /// - Some(ChipId::Chip9): The is a split. Line B starts at Chip 9. So, Chips 0 through 8 are on Line A, and Chip 9 is on Line B.
+            /// - Some(ChipId::Chip5): There is a split. Line B starts at Chip 5. So, Chips 0 through 4 are on Line A, and Chips 5 through 9 are on Line B.
+            /// - Some(ChipId::Chip0): There is a split. Line B starts at Chip 0. So, Chips 0 through 9 (all chips) are on Line B.
+            pub const fn new(split: Option<ChipId>) -> Self {
+                Self { split }
+            }
+
+            /// Returns the number of chips on each line.
+            pub const fn counts(&self) -> Counts {
+                match self.split {
+                    None => {
+                        // None means that all chips are on Line A
+                        Counts {
+                            line_a: ChipId::VARIANT_COUNT,
+                            line_b: 0
+                        }
+                    },
+                    Some(chip) => {
+                        // `chip` is the chip where Line B starts
+                        let line_a = chip as usize;
+                        let line_b = ChipId::VARIANT_COUNT - line_a;
+                        Counts { line_a, line_b }
+                    },
+                }
+            }
+
+            /// Returns what line a Chip is on based on the current split.
+            pub fn line(&self, id: ChipId) -> LineId {
+                match self.split {
+                    None => {
+                        // if split is None, then all chips are on Line A. So chipid must be on line A as well
+                        LineId::LineA
+                    },
+                    Some(chip) => {
+                        // `chip` is the chip where Line B starts
+                        // so if `id` is before `chip`, `id` is on Line A. If `id` is equal to `chip` or is after `chip`, `id` is on Line B
+                        if id < chip {
+                            LineId::LineA
+                        } else {
+                            LineId::LineB
+                        }
+                    }
+                }
+            }
+
+            /// Converts a logical ChipId into a LineIndex based on the current split.
+            pub fn lineindex_from_chipid(&self, id: ChipId) -> LineIndex {
+                match self.line(id) {
+                    LineId::LineA => {
+                        LineIndex {
+                            line: LineId::LineA,
+                            index: id,
+                        }
+                    },
+                    LineId::LineB => {
+                        LineIndex {
+                            line: LineId::LineB,
+                            index: id.reverse(),
+                        }
+                    },
+                }
+            }
+
+            /// Converts a LineIndex to a logical ChipId based on the current split.
+            pub fn chipid_from_lineindex(&self, idx: LineIndex) -> ChipId {
+                let line = idx.line;
+                let raw_idx = idx.index;
+                match line {
+                    LineId::LineA => {
+                        raw_idx
+                    },
+                    LineId::LineB => {
+                        raw_idx.reverse()
+                    }
+                }
+            }
+        }
+    }
+
     /// Struct holding our two isoSPI lines.
     /// 
     /// This struct basically only exists to serve the larger segment manager,
@@ -58,6 +187,9 @@ mod lines {
     pub(in crate::segments) struct Lines {
         line_a: Line,
         line_b: Line,
+
+        /// private guy that manages where the split is set.
+        split: Split,
     }
     impl Lines {
         /// Gets a read-only reference to a `Line`.
@@ -75,6 +207,9 @@ mod lines {
             }
         }
 
+        /// Gets a read-only reference to `Split`
+        pub(in crate::segments) fn split(&self) -> &Split { &self.split }
+
         /// Initializes our two isoSPI lines.
         /// 
         /// ### Parameters
@@ -82,11 +217,12 @@ mod lines {
         /// - `r_lineb`: pins and other hardware resources for Line B
         /// - `chips`: the manager's `Chips` instance (this is what's used to derive the initial number of chips on each line)
         #[function_name::named]
-        pub(in crate::segments) fn init(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources, chips: &super::chips::Chips) -> Result<Self, LinesInitError> {
+        pub(in crate::segments) fn init(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Result<Self, LinesInitError> {
             use embedded_hal_bus::spi::ExclusiveDevice;
-            use embassy_time::{Delay, Timer};
+            use embassy_time::{Delay};
 
-            let chip_counts = chips.counts();
+            let split = split::Split::new(None);
+            let counts = split.counts();
 
             let mut spi_config = embassy_stm32::spi::Config::default();
             spi_config.frequency = embassy_stm32::time::mhz(1);
@@ -117,7 +253,7 @@ mod lines {
             let lineb_cs = embassy_stm32::gpio::Output::new(r_lineb.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
             let lineb_spi: SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
 
-            let line_a  = match adbms6830b::spi::Line::new(linea_spi, chip_counts.line_a) {
+            let line_a  = match adbms6830b::spi::Line::new(linea_spi, counts.line_a()) {
                 Ok(line_a) => line_a,
                 Err(err) => { 
                     defmt::error!("In {}(): Call to `adbms6830b::spi::Line::new()` failed when trying to create `line_a`: {}", function_name!(), err);
@@ -125,7 +261,7 @@ mod lines {
                 }
             };
 
-            let line_b = match adbms6830b::spi::Line::new(lineb_spi, chip_counts.line_b) {
+            let line_b = match adbms6830b::spi::Line::new(lineb_spi, counts.line_b()) {
                 Ok(line_b) => line_b,
                 Err(err) => {
                     defmt::error!("In {}(): Call to `adbms6830b::spi::Line::new()` failed when trying to create `line_b`: {}", function_name!(), err);
@@ -133,7 +269,7 @@ mod lines {
                 }
             };
 
-            Ok(Self { line_a, line_b })
+            Ok(Self { line_a, line_b, split })
         }
     }
 
@@ -151,15 +287,13 @@ mod lines {
 
 /// Private internal helper module for the Manager.
 mod chips {
-    use core::sync::atomic::{AtomicU32, Ordering};
-    use super::lines::LineId;
 
     /// Enum representing the 10 ADBMS6830B chips.
     #[derive(variant_count::VariantCount)]
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Eq, PartialEq, PartialOrd)]
     #[derive(defmt::Format)]
     #[repr(usize)]
-    pub(in crate::segments) enum ChipId {
+    pub(in super) enum ChipId {
         /// Chip 0 (Alpha chip on Segment 0).
         Chip0 = 0,
         /// Chip 1 (Beta chip on Segment 0).
@@ -183,10 +317,31 @@ mod chips {
     }
     impl ChipId {
         /// Array of every chip in logical order.
-        pub(in crate::segments) const LIST: [ChipId; ChipId::VARIANT_COUNT] = [
+        pub(in super) const LIST: [ChipId; ChipId::VARIANT_COUNT] = [
             ChipId::Chip0, ChipId::Chip1, ChipId::Chip2, ChipId::Chip3, ChipId::Chip4,
             ChipId::Chip5, ChipId::Chip6, ChipId::Chip7, ChipId::Chip8, ChipId::Chip9,
         ];
+
+        /// Reverses a ChipId. This is used when converting between Line A
+        /// and Line B but should probably never ever be used outside
+        /// of that. This couldn't just be a simple subtraction
+        /// because that would lose the type safety (would need to operate
+        /// as usize which would require handling an invalid request as
+        /// a runtime error)
+        pub(in super) const fn reverse(&self) -> Self {
+            match self {
+                ChipId::Chip0 => ChipId::Chip9,
+                ChipId::Chip1 => ChipId::Chip8,
+                ChipId::Chip2 => ChipId::Chip7,
+                ChipId::Chip3 => ChipId::Chip6,
+                ChipId::Chip4 => ChipId::Chip5,
+                ChipId::Chip5 => ChipId::Chip4,
+                ChipId::Chip6 => ChipId::Chip3,
+                ChipId::Chip7 => ChipId::Chip2,
+                ChipId::Chip8 => ChipId::Chip1,
+                ChipId::Chip9 => ChipId::Chip0,
+            }
+        }
 
     }
 
@@ -208,7 +363,7 @@ mod chips {
         #[function_name::named]
         pub(in crate::segments) fn init() -> Self {
             Self {
-                chips: [ChipData { line: LineId::LineA }; ChipId::VARIANT_COUNT]
+                chips: [ChipData { nonthing: 0 }; ChipId::VARIANT_COUNT]
             }
         }
         /// Gets a reference to a specific chip and its data.
@@ -218,39 +373,6 @@ mod chips {
         /// Gets a mut reference to a specific chip and its data.
         pub(in crate::segments) const fn get_mut(&mut self, chip: ChipId) -> &mut ChipData {
             &mut self.chips[chip as usize]
-        }
-        /// Returns the number of chips on Line A.
-        pub(in crate::segments) fn linea_count(&self) -> usize {
-            let mut count: usize = 0;
-            for chip in self.chips {
-                if chip.line == LineId::LineA {
-                    count += 1;
-                }
-            }
-            count
-        }
-
-        /// Returns the number of chips on Line B.
-        pub(in crate::segments) fn lineb_count(&self) -> usize {
-            let mut count: usize = 0;
-            for chip in self.chips {
-                if chip.line == LineId::LineB {
-                    count += 1;
-                }
-            }
-            count
-        }
-
-        /// Counts the number of chips on both lines.
-        pub(in crate::segments) fn counts(&self) -> Counts {
-            let mut counts = Counts { line_a: 0, line_b: 0 };
-            for chip in self.chips {
-                match chip.line {
-                    LineId::LineA => counts.line_a += 1,
-                    LineId::LineB => counts.line_b += 1,
-                }
-            }
-            counts
         }
     }
     impl IntoIterator for Chips {
@@ -262,11 +384,11 @@ mod chips {
         }
     }
 
-    /// Data for a `Chip`.
+    /// Data for a Chip.
     #[derive(Copy, Clone)]
     pub(in crate::segments) struct ChipData {
-        /// Id of the Line that this chip is associated with.
-        pub(in crate::segments) line: LineId,
+        // nothing yet
+        pub(in crate::segments) nonthing: u8,
     }
 }
 
@@ -363,25 +485,6 @@ impl Manager {
     /// u_TODO: some kind of partition function that writes a comm break, splits the `Chips` and their lines accordingly, and then updates the number of chips on each line in `Lines`.
     /// i kinda want this to be monolithic so this is basically the only place the "number of chips on a line" state gets updated at runtime (which will hopefully make it impossible for any
     /// state mismatch between the chips array and the lines' chip counts to happen)
-    
-    /// Internal helper that matches an index on a `Line` to a logical chip index.
-    const fn line_idx_to_logical_chipid(&self, line: LineId, index: usize) -> usize {
-        match line {
-            LineId::LineA => index,
-            LineId::LineB => ChipId::VARIANT_COUNT - 1 - index,
-        }
-    }
-
-    /// Internal helper that matches a logical chip index to the `Line` it sits on, and its index
-    /// along that line. This is the inverse of `line_idx_to_logical_chipid()`.
-    fn logical_chipid_to_line_idx(&self, chip: usize) -> (LineId, usize) {
-        let counts = self.chips.counts();
-        if chip < counts.line_a {
-            (LineId::LineA, chip)
-        } else {
-            (LineId::LineB, ChipId::VARIANT_COUNT - 1 - chip)
-        }
-    }
 
     /// Writes to the ADBMS6830B chips.
     /// 
@@ -389,40 +492,53 @@ impl Manager {
     /// - `chips`: An array of the group data you want to write to the chips. This array is indexed in logical `ChipId`
     /// order. It automatically handles the IsoSPI line splitting.
     pub async fn write<G: WritableGroup>(&mut self, chips: &[G; ChipId::VARIANT_COUNT]) -> Result<(), Error<SpiError>> {
-        let counts = self.chips.counts();
+        let counts = self.lines.split().counts();
 
-        self.lines.get_mut(LineId::LineA).write(&chips[..counts.line_a]).await?;
-
-        if counts.line_b > 0 {
-            let mut buf = [chips[0]; MAX_CHIPS];
-            for i in 0..counts.line_b {
-                buf[i] = chips[self.line_idx_to_logical_chipid(LineId::LineB, i)];
-            }
-            self.lines.get_mut(LineId::LineB).write(&buf[..counts.line_b]).await?;
+        let mut buf_a = *chips;
+        let mut buf_b = *chips;
+        for id in ChipId::LIST {
+            let index = self.lines.split().lineindex_from_chipid(id);
+            let buf = match index.line() {
+                LineId::LineA => &mut buf_a,
+                LineId::LineB => &mut buf_b,
+            };
+            buf[index.index()] = chips[id as usize];
         }
-        Ok(())
+
+        let line_a = if counts.line_a() > 0 {
+            self.lines.get_mut(LineId::LineA).write(&buf_a[..counts.line_a()]).await
+        } else {
+            Ok(())
+        };
+
+        let line_b = if counts.line_b() > 0 {
+            self.lines.get_mut(LineId::LineB).write(&buf_b[..counts.line_b()]).await
+        } else {
+            Ok(())
+        };
+
+        line_a.and(line_b)
     }
 
     /// Reads a register group from every chip.
     pub async fn read<G: ReadableGroup>(&mut self) -> Responses<G> {
-        let counts = self.chips.counts();
         let line_a = self.lines.get_mut(LineId::LineA).read_all::<G>().await;
         let line_b = self.lines.get_mut(LineId::LineB).read_all::<G>().await;
 
         Responses {
             // from_fn gets called for each chip index
             chips: core::array::from_fn(|chip| {
-                let (line, index) = self.logical_chipid_to_line_idx(chip);
-                let line_response = match line {
+                let index = self.lines.split().lineindex_from_chipid(ChipId::LIST[chip]);
+                let line_response = match index.line() {
                     LineId::LineA => &line_a,
                     LineId::LineB => &line_b,
                 };
                 match line_response {
-                    Ok(line_response) => match line_response.device(index) {
+                    Ok(line_response) => match line_response.device(index.index()) {
                         Some(data) => ChipResponse::Okay(data),
                         None => ChipResponse::PecFailed,
                     },
-                    Err(err) => ChipResponse::LineFailed(*err, line),
+                    Err(err) => ChipResponse::LineFailed(*err, index.line()),
                 }
             })
         }
@@ -430,12 +546,10 @@ impl Manager {
 
     #[function_name::named]
     pub async fn init(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Result<Self, ManagerInitError> {
-        use embedded_hal_bus::spi::ExclusiveDevice;
-        use embassy_time::{Delay, Timer};
 
         let chips = chips::Chips::init();
 
-        let lines = match lines::Lines::init(r_linea, r_lineb, &chips) {
+        let lines = match lines::Lines::init(r_linea, r_lineb) {
             Ok(lines) => lines,
             Err(err) => {
                 defmt::error!("In {}(): Call to `lines::Lines::init()` failed: {}", function_name!(), err);
