@@ -20,6 +20,14 @@ mod lines {
     };
     use super::chips::ChipId;
     use split::Split;
+    use adbms6830b::{
+        chip::registers::{ReadableGroup, WritableGroup},
+        spi::{Error, Response, MAX_CHIPS},
+    };
+
+    // compiletime assert that our ChipIds are within the driver's configured MAX_CHIPS
+    // if this ever fails you can just change the driver's env var to be bigger
+    const _: () = assert!(adbms6830b::spi::MAX_CHIPS >= ChipId::VARIANT_COUNT);
 
     embassy_stm32::bind_interrupts!(struct Irqs {
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
@@ -30,10 +38,6 @@ mod lines {
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     /// This is just a single SPI controller with a CS pin.
-    /// 
-    /// This is quite an ugly gross type definition due to all of the nested generics
-    /// but it lets us define how we're gonna represent a SPI device in one place.
-    /// Also ideally the type alias should make this type name less annoying to read.
     pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
     /// The error type our `SpiDevice` produces.
@@ -58,10 +62,16 @@ mod lines {
         }
         impl Counts {
             /// Number of chips on Line A.
-            pub fn line_a(&self) -> usize { self.line_a }
+            pub const fn line_a(&self) -> usize { self.line_a }
             /// Number of chips on Line B.
-            pub fn line_b(&self) -> usize { self.line_b }
-
+            pub const fn line_b(&self) -> usize { self.line_b }
+            /// Number of chips on whichever line you name.
+            pub const fn of(&self, line: LineId) -> usize {
+                match line {
+                    LineId::LineA => self.line_a,
+                    LineId::LineB => self.line_b,
+                }
+            }
         }
 
         /// Represents a raw index on a Line. Basically this is literally
@@ -75,7 +85,7 @@ mod lines {
             line: LineId,
             /// The index.
             ///
-            /// At this point the `ChipId` doesn't represent
+            /// specifically right here, `ChipId` doesn't represent
             /// a logical ChipId, it is simply the chip of
             /// the chip from the POV of the line.
             index: ChipId,
@@ -93,15 +103,8 @@ mod lines {
         impl Split {
             /// Creates a new split.
             /// 
-            /// `split` is the Chip at which the Lines are split.
-            /// 
             /// `None` means that all chips are on Line A.
             /// For `Some(chip)`, `chip` is the first chip at which Line B starts.
-            /// Examples:
-            /// - None: There is no split. All chips are on Line A.
-            /// - Some(ChipId::Chip9): The is a split. Line B starts at Chip 9. So, Chips 0 through 8 are on Line A, and Chip 9 is on Line B.
-            /// - Some(ChipId::Chip5): There is a split. Line B starts at Chip 5. So, Chips 0 through 4 are on Line A, and Chips 5 through 9 are on Line B.
-            /// - Some(ChipId::Chip0): There is a split. Line B starts at Chip 0. So, Chips 0 through 9 (all chips) are on Line B.
             pub const fn new(split: Option<ChipId>) -> Self {
                 Self { split }
             }
@@ -126,7 +129,7 @@ mod lines {
             }
 
             /// Returns what line a Chip is on based on the current split.
-            pub fn line(&self, id: ChipId) -> LineId {
+            pub const fn line(&self, id: ChipId) -> LineId {
                 match self.split {
                     None => {
                         // if split is None, then all chips are on Line A. So chipid must be on line A as well
@@ -135,7 +138,7 @@ mod lines {
                     Some(chip) => {
                         // `chip` is the chip where Line B starts
                         // so if `id` is before `chip`, `id` is on Line A. If `id` is equal to `chip` or is after `chip`, `id` is on Line B
-                        if id < chip {
+                        if (id as usize) < (chip as usize) {
                             LineId::LineA
                         } else {
                             LineId::LineB
@@ -176,14 +179,38 @@ mod lines {
                 }
             }
         }
+
+        /// compile-time thing that proves that `counts()` and `line()` are consistent with each other for every representable split.
+        const _: () = {
+            let mut s = 0;
+            while s <= ChipId::VARIANT_COUNT {
+                let split = Split::new(if s == ChipId::VARIANT_COUNT {
+                    None
+                } else {
+                    Some(ChipId::LIST[s])
+                });
+                let counts = split.counts();
+
+                let mut on_a = 0;
+                let mut on_b = 0;
+                let mut c = 0;
+                while c < ChipId::VARIANT_COUNT {
+                    match split.line(ChipId::LIST[c]) {
+                        LineId::LineA => on_a += 1,
+                        LineId::LineB => on_b += 1,
+                    }
+                    c += 1;
+                }
+
+                assert!(on_a == counts.line_a(), "Split::line() is inconsistent with Split::counts() about Line A");
+                assert!(on_b == counts.line_b(), "Split::line() is inconsistent with Split::counts() about Line B");
+
+                s += 1;
+            }
+        };
     }
 
     /// Struct holding our two isoSPI lines.
-    /// 
-    /// This struct basically only exists to serve the larger segment manager,
-    /// and streamline access to the two lines so you can only access them via
-    /// the `LineId` enum. As such, only one instance of this struct is ever
-    /// supposed to be created.
     pub(in crate::segments) struct Lines {
         line_a: Line,
         line_b: Line,
@@ -193,14 +220,19 @@ mod lines {
     }
     impl Lines {
         /// Gets a read-only reference to a `Line`.
-        pub(in crate::segments) const fn get(&self, id: LineId) -> &Line {
+        ///
+        /// This is private so you cant directly read/write either line with
+        /// random chip counts. You have to use `Lines`'s `read()` and `write()`
+        /// methods which always enforce the correct IDs are used based on the current
+        /// split. Pls dont ever make this not private
+        const fn get(&self, id: LineId) -> &Line {
             match id {
                 LineId::LineA => &self.line_a,
                 LineId::LineB => &self.line_b,
             }
         }
-        /// Gets a mutable reference to a `Line`.
-        pub(in crate::segments) const fn get_mut(&mut self, id: LineId) -> &mut Line {
+        /// Gets a mutable reference to a `Line`. This is private for the same reason as `get()`.
+        const fn get_mut(&mut self, id: LineId) -> &mut Line {
             match id {
                 LineId::LineA => &mut self.line_a,
                 LineId::LineB => &mut self.line_b,
@@ -210,12 +242,30 @@ mod lines {
         /// Gets a read-only reference to `Split`
         pub(in crate::segments) fn split(&self) -> &Split { &self.split }
 
+        /// Reads a register group from every chip currently routed to `line`.
+        pub(in crate::segments) async fn read<G: ReadableGroup>(&mut self, line: LineId) -> Result<Response<G>, Error<SpiError>> {
+            let count = self.split.counts().of(line);
+            if count == 0 {
+                return Err(Error::NoDevices);
+            }
+            self.get_mut(line).read::<G>(count).await
+        }
+
+        /// Writes a register group to every chip currently routed to `line`.
+        pub(in crate::segments) async fn write<G: WritableGroup>(&mut self, line: LineId, data: &[G; ChipId::VARIANT_COUNT]) -> Result<(), Error<SpiError>> {
+            let count = self.split.counts().of(line);
+            if count == 0 {
+                // count == 0 is okay, it just means this line has no chips to write to
+                return Ok(());
+            }
+            self.get_mut(line).write(&data[..count]).await
+        }
+
         /// Initializes our two isoSPI lines.
         /// 
         /// ### Parameters
         /// - `r_linea`: pins and other hardware resources for Line A
         /// - `r_lineb`: pins and other hardware resources for Line B
-        /// - `chips`: the manager's `Chips` instance (this is what's used to derive the initial number of chips on each line)
         #[function_name::named]
         pub(in crate::segments) fn init(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Result<Self, LinesInitError> {
             use embedded_hal_bus::spi::ExclusiveDevice;
@@ -294,7 +344,7 @@ mod chips {
     #[derive(Copy, Clone, Eq, PartialEq, PartialOrd)]
     #[derive(defmt::Format)]
     #[repr(usize)]
-    pub(in super) enum ChipId {
+    pub enum ChipId {
         /// Chip 0 (Alpha chip on Segment 0).
         Chip0 = 0,
         /// Chip 1 (Beta chip on Segment 0).
@@ -381,14 +431,6 @@ mod chips {
             self.chips.iter_mut().enumerate().map(|(i, data)| (ChipId::LIST[i], data))
         }
     }
-    impl IntoIterator for Chips {
-        type Item = ChipData;
-        type IntoIter = core::array::IntoIter<ChipData, { ChipId::VARIANT_COUNT }>;
-
-        fn into_iter(self) -> Self::IntoIter {
-            self.chips.into_iter()
-        }
-    }
 
     /// Data for a Chip.
     #[derive(Copy, Clone)]
@@ -442,8 +484,6 @@ pub struct Responses<G> {
 }
 impl<G: ReadableGroup> Responses<G> {
     /// Lets you access the response of a particular chip.
-    /// 
-    /// If `chip`'s PEC failed, you will get `None` here.
     pub fn device(&self, chip: ChipId) -> ChipResponse<G> { self.chips[chip as usize] }
 
     /// Lets you iterate over the chips whose PEC checks failed.
@@ -480,10 +520,7 @@ struct Manager {
     /// Line A and Line B.
     lines: Lines,
     
-    /// The 10 ADBMS6830B chips that we can
-    /// communicate with over the isoSPI lines.
-    /// Each chip starts on Line A, but can move
-    /// over to Line B if needed at runtime.
+    /// Per-chip data for the 10 ADBMS6830B chips.
     chips: Chips,
 }
 
@@ -498,8 +535,6 @@ impl Manager {
     /// - `chips`: An array of the group data you want to write to the chips. This array is indexed in logical `ChipId`
     /// order. It automatically handles the IsoSPI line splitting.
     pub async fn write<G: WritableGroup>(&mut self, chips: &[G; ChipId::VARIANT_COUNT]) -> Result<(), Error<SpiError>> {
-        let counts = self.lines.split().counts();
-
         let mut buf_a = *chips;
         let mut buf_b = *chips;
         for id in ChipId::LIST {
@@ -511,25 +546,16 @@ impl Manager {
             buf[index.index()] = chips[id as usize];
         }
 
-        let line_a = if counts.line_a() > 0 {
-            self.lines.get_mut(LineId::LineA).write(&buf_a[..counts.line_a()]).await
-        } else {
-            Ok(())
-        };
-
-        let line_b = if counts.line_b() > 0 {
-            self.lines.get_mut(LineId::LineB).write(&buf_b[..counts.line_b()]).await
-        } else {
-            Ok(())
-        };
+        let line_a = self.lines.write(LineId::LineA, &buf_a).await;
+        let line_b = self.lines.write(LineId::LineB, &buf_b).await;
 
         line_a.and(line_b)
     }
 
     /// Reads a register group from every chip.
     pub async fn read<G: ReadableGroup>(&mut self) -> Responses<G> {
-        let line_a = self.lines.get_mut(LineId::LineA).read_all::<G>().await;
-        let line_b = self.lines.get_mut(LineId::LineB).read_all::<G>().await;
+        let line_a = self.lines.read::<G>(LineId::LineA).await;
+        let line_b = self.lines.read::<G>(LineId::LineB).await;
 
         Responses {
             chips: ChipId::LIST.map(|chip_id| {
