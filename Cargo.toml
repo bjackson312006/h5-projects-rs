@@ -33,6 +33,7 @@ embassy-net = { version = "0.9", features = ["tcp", "dhcpv4", "medium-ethernet",
 rust-mqtt = { version = "0.5",default-features = false, features = ["defmt", "bump", "v5"]}
 
 can-handler = { git = "https://github.com/Northeastern-Electric-Racing/firmware-rs.git", branch = "develop" }
+cangen = { git = "https://github.com/bjackson312006/firmware-rs.git", branch = "cangen.path-fix" }
 
 [profile.release]
 opt-level = "s"

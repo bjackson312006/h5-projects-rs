@@ -46,7 +46,7 @@ pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources
     // get the config from ner_can and update it (there are some things that need to be overwritten to be the same as `MX_FDCAN2_Init()` from TSECU-Shepherd)
     let config = ner_can.can_configurator.config();
         // ner_can uses `set_bitrate(500_000)` but we need to override that because it picks a different sample point
-        // this should match the 75% sample point from TSECU-Shepherd but should still be 500 kbit/s
+        // this should match the 75% sample point from TSECU-Shepherd but should still also be 500 kbit/s?
         config.set_nominal_bit_timing(NominalBitTiming {
             prescaler: NonZeroU16::new(8).unwrap(),
             seg1: NonZeroU8::new(11).unwrap(),

@@ -20,6 +20,7 @@ heapless.workspace = true
 panic-probe.workspace = true
 assign-resources.workspace = true
 can-handler.workspace = true
+cangen.workspace = true
 #static_cell.workspace = true
 
 function_name = { version = "0.3.0" }
