@@ -120,6 +120,9 @@ pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb:
     // this runs the service. it never returns after you call it. the service will run at the configured `service_frequency_ms`. The closure allows you to
     // execute code every time the service runs (intended to be used for diagnostics, but other stuff can go in there too)
     segments.service.run_with_diagnostics(async |diagnostics| {
+        // timestamp for measuring how long these diagnostic logs themselves take. see the `Timing/diagnostics_overhead` topic near the bottom of closure
+        let diagnostics_started = embassy_time::Instant::now();
+
         // accumulator diagnostics (not per-chip ones)
         let accumulator = diagnostics.accumulator();
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PreviousState", desc = "State of the accumulator accumulator prior to this Service cycle. This is the state failed, attempts, and failure_pct were gathered under.", "{}", accumulator.previous_state());
@@ -223,5 +226,8 @@ pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb:
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/most_recent_line_a_error", desc = "Most recent Error that has occured on Line A. None if no errors have occured yet. (this is for HAL-level errors, and has nothing to do with PEC errors or anything like that)", "{}", diagnostics.most_recent_line_a_error());
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/line_b_error_count", desc = "Total number of times Line B has failed with a SPI::Error.", "{=usize}", diagnostics.line_b_error_count());
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/most_recent_line_b_error", desc = "Most recent Error that has occured on Line B. None if no errors have occured yet. (this is for HAL-level errors, and has nothing to do with PEC errors or anything like that)", "{}", diagnostics.most_recent_line_b_error());
+
+        // how long the logging in this closure took
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/diagnostics_overhead", desc = "How long the ServiceDiagnostics logging took. In micros", "{=u64}", embassy_time::Instant::now().saturating_duration_since(diagnostics_started).as_micros());
     }).await;
 }
