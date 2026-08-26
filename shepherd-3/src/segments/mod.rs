@@ -175,12 +175,12 @@ pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb:
 
         // timing diagnostics
         let timing = diagnostics.timing();
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/period", desc = "The difference in time between the most recent Service cycle, and the Service cycle before that. In ms.", "{=u64}", match timing.period() { Some(duration) => duration.as_millis(), None => 0 });
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/period", desc = "The difference in time between the most recent Service cycle, and the Service cycle before that. In ms. Will be 0ms if fewer than two Service cycles have run yet.", "{=u64}", match timing.period() { Some(duration) => duration.as_millis(), None => 0 });
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_period", desc = "The maximum period the Service has observed while running. In ms.", "{=u64}", timing.max_period().as_millis());
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/work", desc = "How long the “work” of the Service took during the most recent Service cycle. In ms.", "{=u64}", timing.work().as_millis());
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_work", desc = "The maximum work the Service has observed while running. In ms.", "{=u64}", timing.max_work().as_millis());
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/lock_wait", desc = "How long the Service waited to acquire the mutex during the most recent cycle. In ms.", "{=u64}", timing.lock_wait().as_millis());
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_lock_wait", desc = "The maximum lock_wait the Service has observed while running. In ms.", "{=u64}", timing.max_lock_wait().as_millis());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/work", desc = "How long the “work” of the Service took during the most recent Service cycle. In us.", "{=u64}", timing.work().as_micros());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_work", desc = "The maximum work the Service has observed while running. In us.", "{=u64}", timing.max_work().as_micros());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/lock_wait", desc = "How long the Service waited to acquire the mutex during the most recent cycle. In us.", "{=u64}", timing.lock_wait().as_micros());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_lock_wait", desc = "The maximum lock_wait the Service has observed while running. In us.", "{=u64}", timing.max_lock_wait().as_micros());
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/service_frequency", desc = "The configured service frequency. This represents how long the Service waits after a cycle to wake up an run again. This is a const value!", "{=u64}", timing.service_frequency());
 
         // chip state diagnostics
@@ -195,7 +195,7 @@ pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb:
                 defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/pec_failed_count"], desc = "Total number of times this chip has read in a failed PEC. (different to what the accumulator reports, since this is overall)", "{=usize}", state.pec_failed_count());
                 defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/pec_success_count"], desc = "Total number of times this chip has read in a successful PEC. (different to what the accumulator reports, since this is overall)", "{=usize}", state.pec_success_count());
                 defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/command_count_resets"], desc = "Number of times the command counter for this chip has been reset due to a sleep.", "{=usize}", state.command_count_resets());
-                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/last_contacted"], desc = "Last time we heard from this chip with a good PEC. In ms since system boot.", "{=u64}", match state.last_contacted() { Some(instant) => instant.as_millis(), None => 0 });
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/last_contacted"], desc = "Last time we heard from this chip with a good PEC. In ms since system boot. 0ms if we have never heard from this chip.", "{=u64}", match state.last_contacted() { Some(instant) => instant.as_millis(), None => 0 });
                 defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/expected"], desc = "What this chip’s counter “should” be. This is tracked from the commands sent to it.", "{=u8}", command_count.expected());
                 defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/reported"], desc = "What this chip reported on the last read of it that passed its PEC.", "{=u8}", command_count.reported());
                 defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/in_sync"], desc = "Whether the reported counter matches the expected one. This can be expected to be false in some cases, like after isoSPI recovers from a break.", "{=bool}", command_count.in_sync());

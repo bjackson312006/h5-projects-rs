@@ -7,6 +7,8 @@ target = "thumbv8m.main-none-eabihf"
 [env]
 DEFMT_LOG = "trace"
 PROBE_RS_EMBED_CONFIG_FILE = { value = "Embed.toml", relative = true }
+DEFMT_RTT_BUFFER_SIZE = "16384"
+
 
 [alias]
 embed2 = "embed --config-file=../Embed.toml"
