@@ -2,8 +2,6 @@
 //! 
 //! For context, there are 5 segments, each with two ADBMS6830B chips. So, there are 10 ADBMS6830B chips total.
 
-use core::time::Duration;
-
 embassy_stm32::bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
@@ -29,6 +27,7 @@ mod alias {
     pub type SpiDevice = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 
     /// The error type our `SpiDevice` produces.
+    #[allow(unused)]
     pub type SpiError = <SpiDevice as embedded_hal_async::spi::ErrorType>::Error;
 
     /// Type alias representing an IsoSPI Line.

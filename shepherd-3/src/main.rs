@@ -13,6 +13,7 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use {defmt_rtt as _, panic_probe as _};
 
 mod segments;
+pub mod hardfault;
 
 use assign_resources::assign_resources;
 assign_resources! {
@@ -50,6 +51,8 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_stm32::init(Config::default());
 
+    hardfault::report_last_reset();
+
     let r = split_resources!(p);
 
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
@@ -75,11 +78,4 @@ pub async fn default_task(r: DefaultResources) -> ! {
         Timer::after_millis(HEARTBEAT_PERIOD_MS).await;
         watchdog.pet();
     }
-}
-
-#[cortex_m_rt::exception]
-unsafe fn HardFault(_frame: &cortex_m_rt::ExceptionFrame) -> ! {
-    use cortex_m::peripheral::SCB;
-
-    SCB::sys_reset()
 }
