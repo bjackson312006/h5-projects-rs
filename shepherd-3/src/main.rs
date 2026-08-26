@@ -3,7 +3,6 @@
 
 use defmt::{Debug2Format, info, warn};
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{dma, gpio, peripherals, spi, time::mhz, Peri};
@@ -14,12 +13,20 @@ use {defmt_rtt as _, panic_probe as _};
 
 mod segments;
 pub mod hardfault;
+pub mod can;
+pub mod clocks;
 
 use assign_resources::assign_resources;
 assign_resources! {
     /// Resources for default task.
     default: DefaultResources {
         watchdog: IWDG,
+    }
+    /// Resources for CAN.
+    can: CanResources {
+        can: FDCAN2,
+        can_tx: PB13,
+        can_rx: PD9,
     }
     /// Resources for segment IsoSPI Line A.
     segment_isospi_linea: SegmentIsoSpiLineAResources {
@@ -49,12 +56,13 @@ assign_resources! {
 async fn main(spawner: Spawner) {
     info!("Initializing project...");
 
-    let p = embassy_stm32::init(Config::default());
+    let p = embassy_stm32::init(clocks::rcc_config());
 
     hardfault::report_last_reset();
 
     let r = split_resources!(p);
 
+    spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
 }

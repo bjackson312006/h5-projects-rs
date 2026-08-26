@@ -209,6 +209,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
+name = "can-handler"
+version = "0.1.0"
+source = "git+https://github.com/Northeastern-Electric-Racing/firmware-rs.git?branch=develop#c148242fb4b6a8368e753de13da3417967000aea"
+dependencies = [
+ "defmt 1.1.1",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-stm32",
+ "embassy-sync",
+ "embedded-can",
+ "heapless",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1354,6 +1368,7 @@ version = "0.1.0"
 dependencies = [
  "adbms6830b",
  "assign-resources",
+ "can-handler",
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
