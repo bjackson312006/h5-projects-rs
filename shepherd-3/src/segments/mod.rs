@@ -1,16 +1,17 @@
-//! Subsystem for managing the two isoSPI busses connecting to the ADBMS6830B chips on each segment.
+//! Module for controlling the Segments and their ADBMS6830B chips.
 //! 
-//! There are 5 segments, each of which have two ADBMS6830B chips on them. So, there are 10 ADBMS6830B chips in total.
+//! For context, there are 5 segments, each with two ADBMS6830B chips. So, there are 10 ADBMS6830B chips total.
 
-use lines::{Line, LineId, Lines, LinesInitError, SpiError};
-use chips::{ChipData, ChipId, Chips};
-use adbms6830b::{
-    chip::registers::{WritableGroup, ReadableGroup},
-    spi::{MAX_CHIPS, Error, Response},
-};
+use core::time::Duration;
 
-/// Private internal helper module for the Manager.
-mod lines {
+embassy_stm32::bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
+    GPDMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH2>;
+    GPDMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH3>;
+});
+
+mod alias {
     use embedded_hal_bus::spi::ExclusiveDevice;
     use embassy_time::Delay;
     use embassy_stm32::{
@@ -18,23 +19,10 @@ mod lines {
         gpio::Output,
         spi::{ Spi, mode::Master },
     };
-    use super::chips::ChipId;
-    use split::Split;
-    use adbms6830b::{
-        chip::registers::{ReadableGroup, WritableGroup},
-        spi::{Error, Response, MAX_CHIPS},
-    };
+    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 
-    // compiletime assert that our ChipIds are within the driver's configured MAX_CHIPS
-    // if this ever fails you can just change the driver's env var to be bigger
-    const _: () = assert!(adbms6830b::spi::MAX_CHIPS >= ChipId::VARIANT_COUNT);
-
-    embassy_stm32::bind_interrupts!(struct Irqs {
-        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
-        GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
-        GPDMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH2>;
-        GPDMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH3>;
-    });
+    /// Number of ADBMS6830B chips we have.
+    const ADBMS6830B_NUM_CHIPS: usize = 10;
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     /// This is just a single SPI controller with a CS pin.
@@ -44,586 +32,196 @@ mod lines {
     pub type SpiError = <SpiDevice as embedded_hal_async::spi::ErrorType>::Error;
 
     /// Type alias representing an IsoSPI Line.
-    pub type Line = adbms6830b::spi::Line<SpiDevice>;
-
-    /// Errors that may occur when initializing `Lines`.
-    #[derive(defmt::Format)]
-    pub enum LinesInitError {
-        /// This error means that initializing a `Line` via a `adbms6830b::spi::Line::new()` call failed.
-        DriverInitError(adbms6830b::spi::InitError),
-    }
-
-    pub(in super) mod split {
-        use super::{ChipId, LineId};
-
-        pub struct Counts {
-            pub(in crate::segments::lines::split) line_a: usize,
-            pub(in crate::segments::lines::split) line_b: usize
-        }
-        impl Counts {
-            /// Number of chips on Line A.
-            pub const fn line_a(&self) -> usize { self.line_a }
-            /// Number of chips on Line B.
-            pub const fn line_b(&self) -> usize { self.line_b }
-            /// Number of chips on whichever line you name.
-            pub const fn of(&self, line: LineId) -> usize {
-                match line {
-                    LineId::LineA => self.line_a,
-                    LineId::LineB => self.line_b,
-                }
-            }
-        }
-
-        /// Represents a raw index on a Line. Basically this is literally
-        /// just an index from the POV of the Line.
-        /// 
-        /// This type can only be created by `lineindex_from_chipid()`. It is purely
-        /// just a structuring type for the return value of `lineindex_from_chipid()`.
-        /// Because of that, there's no constructor and should not ever be!
-        pub struct LineIndex {
-            /// The Line the index is on.
-            line: LineId,
-            /// The index.
-            ///
-            /// specifically right here, `ChipId` doesn't represent
-            /// a logical ChipId, it is simply the chip of
-            /// the chip from the POV of the line.
-            index: ChipId,
-        }
-        impl LineIndex {
-            /// The Line this index refers to.
-            pub const fn line(&self) -> LineId { self.line }
-            /// The position along this LineIndex's Line (as a raw index).
-            pub const fn index(&self) -> usize { self.index as usize }
-        }
-
-        pub struct Split {
-            split: Option<ChipId>,
-        }
-        impl Split {
-            /// Creates a new split.
-            /// 
-            /// `None` means that all chips are on Line A.
-            /// For `Some(chip)`, `chip` is the first chip at which Line B starts.
-            pub const fn new(split: Option<ChipId>) -> Self {
-                Self { split }
-            }
-
-            /// Returns the number of chips on each line.
-            pub const fn counts(&self) -> Counts {
-                match self.split {
-                    None => {
-                        // None means that all chips are on Line A
-                        Counts {
-                            line_a: ChipId::VARIANT_COUNT,
-                            line_b: 0
-                        }
-                    },
-                    Some(chip) => {
-                        // `chip` is the chip where Line B starts
-                        let line_a = chip as usize;
-                        let line_b = ChipId::VARIANT_COUNT - line_a;
-                        Counts { line_a, line_b }
-                    },
-                }
-            }
-
-            /// Returns what line a Chip is on based on the current split.
-            pub const fn line(&self, id: ChipId) -> LineId {
-                match self.split {
-                    None => {
-                        // if split is None, then all chips are on Line A. So chipid must be on line A as well
-                        LineId::LineA
-                    },
-                    Some(chip) => {
-                        // `chip` is the chip where Line B starts
-                        // so if `id` is before `chip`, `id` is on Line A. If `id` is equal to `chip` or is after `chip`, `id` is on Line B
-                        if (id as usize) < (chip as usize) {
-                            LineId::LineA
-                        } else {
-                            LineId::LineB
-                        }
-                    }
-                }
-            }
-
-            /// Converts a logical ChipId into a LineIndex based on the current split.
-            pub fn lineindex_from_chipid(&self, id: ChipId) -> LineIndex {
-                match self.line(id) {
-                    LineId::LineA => {
-                        LineIndex {
-                            line: LineId::LineA,
-                            index: id,
-                        }
-                    },
-                    LineId::LineB => {
-                        LineIndex {
-                            line: LineId::LineB,
-                            index: id.reverse(),
-                        }
-                    },
-                }
-            }
-
-            /// Converts a LineIndex to a logical ChipId based on the current split.
-            pub fn chipid_from_lineindex(&self, idx: LineIndex) -> ChipId {
-                let line = idx.line;
-                let raw_idx = idx.index;
-                match line {
-                    LineId::LineA => {
-                        raw_idx
-                    },
-                    LineId::LineB => {
-                        raw_idx.reverse()
-                    }
-                }
-            }
-        }
-
-        /// compile-time thing that proves that `counts()` and `line()` are consistent with each other for every representable split.
-        const _: () = {
-            let mut s = 0;
-            while s <= ChipId::VARIANT_COUNT {
-                let split = Split::new(if s == ChipId::VARIANT_COUNT {
-                    None
-                } else {
-                    Some(ChipId::LIST[s])
-                });
-                let counts = split.counts();
-
-                let mut on_a = 0;
-                let mut on_b = 0;
-                let mut c = 0;
-                while c < ChipId::VARIANT_COUNT {
-                    match split.line(ChipId::LIST[c]) {
-                        LineId::LineA => on_a += 1,
-                        LineId::LineB => on_b += 1,
-                    }
-                    c += 1;
-                }
-
-                assert!(on_a == counts.line_a(), "Split::line() is inconsistent with Split::counts() about Line A");
-                assert!(on_b == counts.line_b(), "Split::line() is inconsistent with Split::counts() about Line B");
-
-                s += 1;
-            }
-        };
-    }
-
-    /// Struct holding our two isoSPI lines.
-    pub(in crate::segments) struct Lines {
-        line_a: Line,
-        line_b: Line,
-
-        /// private guy that manages where the split is set.
-        split: Split,
-    }
-    impl Lines {
-        /// Gets a read-only reference to a `Line`.
-        ///
-        /// This is private so you cant directly read/write either line with
-        /// random chip counts. You have to use `Lines`'s `read()` and `write()`
-        /// methods which always enforce the correct IDs are used based on the current
-        /// split. Pls dont ever make this not private
-        const fn get(&self, id: LineId) -> &Line {
-            match id {
-                LineId::LineA => &self.line_a,
-                LineId::LineB => &self.line_b,
-            }
-        }
-        /// Gets a mutable reference to a `Line`. This is private for the same reason as `get()`.
-        const fn get_mut(&mut self, id: LineId) -> &mut Line {
-            match id {
-                LineId::LineA => &mut self.line_a,
-                LineId::LineB => &mut self.line_b,
-            }
-        }
-
-        /// Gets a read-only reference to `Split`
-        pub(in crate::segments) fn split(&self) -> &Split { &self.split }
-
-        /// Reads a register group from every chip currently routed to `line`.
-        pub(in crate::segments) async fn read<G: ReadableGroup>(&mut self, line: LineId) -> Result<Response<G>, Error<SpiError>> {
-            let count = self.split.counts().of(line);
-            if count == 0 {
-                return Err(Error::NoDevices);
-            }
-            self.get_mut(line).read::<G>(count).await
-        }
-
-        /// Writes a register group to every chip currently routed to `line`.
-        pub(in crate::segments) async fn write<G: WritableGroup>(&mut self, line: LineId, data: &[G; ChipId::VARIANT_COUNT]) -> Result<(), Error<SpiError>> {
-            let count = self.split.counts().of(line);
-            if count == 0 {
-                // count == 0 is okay, it just means this line has no chips to write to
-                return Ok(());
-            }
-            self.get_mut(line).write(&data[..count]).await
-        }
-
-        /// Initializes our two isoSPI lines.
-        /// 
-        /// ### Parameters
-        /// - `r_linea`: pins and other hardware resources for Line A
-        /// - `r_lineb`: pins and other hardware resources for Line B
-        #[function_name::named]
-        pub(in crate::segments) fn init(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Result<Self, LinesInitError> {
-            use embedded_hal_bus::spi::ExclusiveDevice;
-            use embassy_time::{Delay};
-
-            let split = split::Split::new(None);
-            let counts = split.counts();
-
-            let mut spi_config = embassy_stm32::spi::Config::default();
-            spi_config.frequency = embassy_stm32::time::mhz(1);
-
-            let linea_spi = embassy_stm32::spi::Spi::new(
-                r_linea.linea_spi,
-                r_linea.linea_sck,
-                r_linea.linea_mosi,
-                r_linea.linea_miso,
-                r_linea.linea_tx_dma,
-                r_linea.linea_rx_dma,
-                Irqs,
-                spi_config,
-            );
-            let linea_cs = embassy_stm32::gpio::Output::new(r_linea.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-            let linea_spi = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
-
-            let lineb_spi = embassy_stm32::spi::Spi::new(
-                r_lineb.lineb_spi,
-                r_lineb.lineb_sck,
-                r_lineb.lineb_mosi,
-                r_lineb.lineb_miso,
-                r_lineb.lineb_tx_dma,
-                r_lineb.lineb_rx_dma,
-                Irqs,
-                spi_config,
-            );
-            let lineb_cs = embassy_stm32::gpio::Output::new(r_lineb.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
-            let lineb_spi: SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
-
-            let line_a  = match adbms6830b::spi::Line::new(linea_spi, counts.line_a()) {
-                Ok(line_a) => line_a,
-                Err(err) => { 
-                    defmt::error!("In {}(): Call to `adbms6830b::spi::Line::new()` failed when trying to create `line_a`: {}", function_name!(), err);
-                    return Err(LinesInitError::DriverInitError(err)); 
-                }
-            };
-
-            let line_b = match adbms6830b::spi::Line::new(lineb_spi, counts.line_b()) {
-                Ok(line_b) => line_b,
-                Err(err) => {
-                    defmt::error!("In {}(): Call to `adbms6830b::spi::Line::new()` failed when trying to create `line_b`: {}", function_name!(), err);
-                    return Err(LinesInitError::DriverInitError(err)); 
-                }
-            };
-
-            Ok(Self { line_a, line_b, split })
-        }
-    }
-
-    /// ID for each line.
-    #[derive(Copy, Clone, PartialEq)]
-    #[derive(defmt::Format)]
-    pub enum LineId {
-        /// Corresponds to `Lines::line_a`.
-        LineA,
-        /// Corresponds to `Lines::line_b`.
-        LineB,
-    }
-
-
-}
-
-/// Private internal helper module for the Manager.
-mod chips {
-
-    /// Enum representing the 10 ADBMS6830B chips.
-    #[derive(variant_count::VariantCount)]
-    #[derive(Copy, Clone, Eq, PartialEq, PartialOrd)]
-    #[derive(defmt::Format)]
-    #[repr(usize)]
-    pub enum ChipId {
-        /// Chip 0 (Alpha chip on Segment 0).
-        Chip0 = 0,
-        /// Chip 1 (Beta chip on Segment 0).
-        Chip1 = 1,
-        /// Chip 2 (Alpha chip on Segment 1).
-        Chip2 = 2,
-        /// Chip 3 (Beta chip on Segment 1).
-        Chip3 = 3,
-        /// Chip 4 (Alpha chip on Segment 2).
-        Chip4 = 4,
-        /// Chip 5 (Beta chip on Segment 2).
-        Chip5 = 5,
-        /// Chip 6 (Alpha chip on Segment 3).
-        Chip6 = 6,
-        /// Chip 7 (Beta chip on Segment 3).
-        Chip7 = 7,
-        /// Chip 8 (Alpha chip on Segment 4).
-        Chip8 = 8,
-        /// Chip 9 (Beta chip on Segment 4).
-        Chip9 = 9
-    }
-    impl ChipId {
-        /// Array of every chip in logical order.
-        pub(in super) const LIST: [ChipId; ChipId::VARIANT_COUNT] = [
-            ChipId::Chip0, ChipId::Chip1, ChipId::Chip2, ChipId::Chip3, ChipId::Chip4,
-            ChipId::Chip5, ChipId::Chip6, ChipId::Chip7, ChipId::Chip8, ChipId::Chip9,
-        ];
-
-        /// Reverses a ChipId. This is used when converting between Line A
-        /// and Line B but should probably never ever be used outside
-        /// of that. This couldn't just be a simple subtraction
-        /// because that would lose the type safety (would need to operate
-        /// as usize which would require handling an invalid request as
-        /// a runtime error)
-        pub(in super) const fn reverse(&self) -> Self {
-            match self {
-                ChipId::Chip0 => ChipId::Chip9,
-                ChipId::Chip1 => ChipId::Chip8,
-                ChipId::Chip2 => ChipId::Chip7,
-                ChipId::Chip3 => ChipId::Chip6,
-                ChipId::Chip4 => ChipId::Chip5,
-                ChipId::Chip5 => ChipId::Chip4,
-                ChipId::Chip6 => ChipId::Chip3,
-                ChipId::Chip7 => ChipId::Chip2,
-                ChipId::Chip8 => ChipId::Chip1,
-                ChipId::Chip9 => ChipId::Chip0,
-            }
-        }
-
-    }
-
-    /// List of all the ADBMS6830B chips on the segments.
-    pub(in crate::segments) struct Chips {
-        /// List of each Chip, containing its data.
-        chips: [ChipData; ChipId::VARIANT_COUNT],
-    }
-    impl Chips {
-        /// Initializes a `Chips` list. Right now, all chips start on Line A.
-        #[function_name::named]
-        pub(in crate::segments) fn init() -> Self {
-            Self {
-                chips: [ChipData { nonthing: 0 }; ChipId::VARIANT_COUNT]
-            }
-        }
-        /// Gets a reference to a specific chip and its data.
-        pub(in crate::segments) const fn get(&self, chip: ChipId) -> &ChipData {
-            &self.chips[chip as usize]
-        }
-        /// Gets a mut reference to a specific chip and its data.
-        pub(in crate::segments) const fn get_mut(&mut self, chip: ChipId) -> &mut ChipData {
-            &mut self.chips[chip as usize]
-        }
-
-        /// Iterates over every chip in logical order.
-        ///
-        /// This exists so callers can say `for (id, data) in chips.iter()` instead of
-        /// enumerating and casting an index back into a `ChipId`.
-        pub(in crate::segments) fn iter(&self) -> impl Iterator<Item = (ChipId, &ChipData)> + '_ {
-            ChipId::LIST.into_iter().map(|id| (id, &self.chips[id as usize]))
-        }
-
-        /// Like `iter()` but with mutable references to each chip's data.
-        pub(in crate::segments) fn iter_mut(&mut self) -> impl Iterator<Item = (ChipId, &mut ChipData)> + '_ {
-            self.chips.iter_mut().enumerate().map(|(i, data)| (ChipId::LIST[i], data))
-        }
-    }
-
-    /// Data for a Chip.
-    #[derive(Copy, Clone)]
-    pub(in crate::segments) struct ChipData {
-        // nothing yet
-        pub(in crate::segments) nonthing: u8,
-    }
-}
-
-/// Per-chip responses when reading segments.
-#[derive(Copy, Clone)]
-pub enum ChipResponse<G> {
-    /// Normal response.
     /// 
-    /// This chip responded to the read as asked with no issues. The inner
-    /// contains the read data for this chip.
-    Okay(G),
-    /// This specific chip's PEC check failed.
-    PecFailed,
-    /// The entire line belonging to this chip was not able to be
-    /// communicated with. This is not a chip-specific issue, since it applies to all
-    /// other chips that share this line. The SPI error for this chip's line, and the line ID of
-    /// the failing line, can be found in the inner.
-    LineFailed(Error<SpiError>, LineId),
-}
-/// Possible errors for each chip's response.
-#[derive(Copy, Clone)]
-pub enum ResponseError {
-    /// The entire line associated with this chip was not able to be
-    /// communicated with. This is not a chip-specific issue, since it applies to all
-    /// other chips that share this line. The SPI error for this chip's line, and the line ID of
-    /// the failing line, can be found in the inner.
-    LineFailed(Error<SpiError>, LineId),
-    /// This specific chip's PEC check failed.
-    /// 
-    /// Note: This error means that the `Line` this chip is on was able to be read successfully,
-    /// it's just that this specific chip's PEC check failed when processing the responses.
-    PecFailed,
-}
-impl ResponseError {
-    /// Returns `true` if this `ResponseError` is `PecFailed`.
-    pub fn is_pecfailed(&self) -> bool {
-        matches!(*self, ResponseError::PecFailed)
-    }
+    /// Each line can go up to `ADBMS6830B_NUM_CHIPS` chips, but the actual number of chips they have is dynamic at runtime and is managed by the `Service`.
+    pub type Line = adbms6830b::line::Line<SpiDevice, ADBMS6830B_NUM_CHIPS>;
 
-    /// Returns `true` if this `ResponseError` is `LineFailed`.
-    pub fn is_linefailed(&self) -> bool {
-        matches!(*self, ResponseError::LineFailed(..))
-    }
+    /// Type alias representing our adbms6830b Service configuration.
+    pub type Service = adbms6830b::turnkey::service::Service<ThreadModeRawMutex, SpiDevice, ADBMS6830B_NUM_CHIPS>;
 }
 
-/// Response when reading the segments.
-pub struct Responses<G> {
-    chips: [Result<Response<G>, ResponseError>; ChipId::VARIANT_COUNT],
+/// Guy in charge of the segments.
+pub struct Segments {
+    service: alias::Service,
 }
-// u_Note: idea: instead of the chipresponse enum, we just do Result<Response<G>, ChipError>> or something (`Response` would just be the type from the driver)
-impl<G: ReadableGroup> Responses<G> {
-    /// Lets you access the response of a particular chip.
-    pub fn device(&self, chip: ChipId) -> Result<Response<G>, ResponseError> { self.chips[chip as usize] }
-
-    /// Lets you iterate over the chips whose PEC checks failed.
-    pub fn pec_failures(&self) -> impl Iterator<Item = ChipId> + '_ {
-        ChipId::LIST.into_iter().filter(|&chip| self.chips[chip as usize].as_ref().err().map_or(false, |err| err.is_pecfailed()))
-    }
-
-    /// Lets you iterate over the chips whose `Line` was not able to be communicated with.
-    pub fn line_failures(&self) -> impl Iterator<Item = ChipId> + '_ {
-        ChipId::LIST.into_iter().filter(|&chip| self.chips[chip as usize].as_ref().err().map_or(false, |err| err.is_linefailed()))
-    }
-
-    /// Returns true if reads from all chips were successful.
-    pub fn all_ok(&self) -> bool {
-        self.chips.iter().all(|result| result.is_ok())
-    }
-
-    /// Lets you iterate over the returned data per chip.
-    pub fn iter(&self) -> impl Iterator<Item = (ChipId, Result<Response<G>, ResponseError>)> + '_ {
-        ChipId::LIST.into_iter().map(|chip| (chip, self.chips[chip as usize]))
-    }
-}
-
-
-/// Errors that may occur when initializing the segment manager.
-#[derive(defmt::Format)]
-pub enum ManagerInitError {
-    /// Error that occured when trying to call `lines::Lines::init()`.
-    LinesInitError(LinesInitError),
-}
-
-/// Segment manager.
-struct Manager {
-    /// Line A and Line B.
-    lines: Lines,
-    
-    /// Per-chip data for the 10 ADBMS6830B chips.
-    chips: Chips,
-}
-
-impl Manager {
-    /// u_TODO: some kind of partition function that writes a comm break, splits the `Chips` and their lines accordingly, and then updates the number of chips on each line in `Lines`.
-    /// i kinda want this to be monolithic so this is basically the only place the "number of chips on a line" state gets updated at runtime (which will hopefully make it impossible for any
-    /// state mismatch between the chips array and the lines' chip counts to happen)
-
-    /// Writes to the ADBMS6830B chips.
+impl Segments {
+    /// Initializes our `Segments`. AKA inits the two isoSPI lines. Doesn't start up the task or set any runtime config registers though.
     /// 
     /// ### Parameters
-    /// - `chips`: An array of the group data you want to write to the chips. This array is indexed in logical `ChipId`
-    /// order. It automatically handles the IsoSPI line splitting.
-    pub async fn write<G: WritableGroup>(&mut self, chips: &[G; ChipId::VARIANT_COUNT]) -> Result<(), Error<SpiError>> {
-        let mut buf_a = *chips;
-        let mut buf_b = *chips;
-        for id in ChipId::LIST {
-            let index = self.lines.split().lineindex_from_chipid(id);
-            let buf = match index.line() {
-                LineId::LineA => &mut buf_a,
-                LineId::LineB => &mut buf_b,
-            };
-            buf[index.index()] = chips[id as usize];
-        }
-
-        let line_a = self.lines.write(LineId::LineA, &buf_a).await;
-        let line_b = self.lines.write(LineId::LineB, &buf_b).await;
-
-        line_a.and(line_b)
-    }
-
-    /// Reads a register group from every chip.
-    pub async fn read<G: ReadableGroup>(&mut self) -> Responses<G> {
-        let line_a = self.lines.read::<G>(LineId::LineA).await;
-        let line_b = self.lines.read::<G>(LineId::LineB).await;
-
-        Responses {
-            chips: ChipId::LIST.map(|chip_id| {
-                let index =
-                    self.lines.split().lineindex_from_chipid(chip_id);
-
-                let line_response = match index.line() {
-                    LineId::LineA => &line_a,
-                    LineId::LineB => &line_b,
-                };
-
-                match line_response {
-                    Ok(okay_response) => match okay_response.device(index.index()) {
-                        Some(_) => Ok(*okay_response),
-                        None => Err(ResponseError::PecFailed),
-                    },
-                    Err(err) => Err(ResponseError::LineFailed(*err, index.line())),
-                }
-            }),
-        }
-    }
-
-    #[function_name::named]
-    pub async fn init(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Result<Self, ManagerInitError> {
-
-        let chips = chips::Chips::init();
-
-        let lines = match lines::Lines::init(r_linea, r_lineb) {
-            Ok(lines) => lines,
-            Err(err) => {
-                defmt::error!("In {}(): Call to `lines::Lines::init()` failed: {}", function_name!(), err);
-                return Err(ManagerInitError::LinesInitError(err)); 
-            }
+    /// - `r_linea`: pins and other hardware resources for Line A
+    /// - `r_lineb`: pins and other hardware resources for Line B
+    pub fn new(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Self {
+        use embedded_hal_bus::spi::ExclusiveDevice;
+        use embassy_time::{Delay};
+        use adbms6830b::turnkey::service::config::{
+            ServiceConfig,
+            SEGMENT_ISOSPI_EVAL_PERIOD_MS,
+            SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS,
+            SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS,
+            SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL,
+            SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW,
+            SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT,
+            SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS,
+            SERVICE_FREQUENCY_MS,
         };
 
-        Ok(Self { lines, chips })
-    }
-}
+        let mut spi_config = embassy_stm32::spi::Config::default();
+        spi_config.frequency = embassy_stm32::time::mhz(1);
 
-/// # Debug
-/// 
-/// Extra `Manager` methods that provide debugging data.
-impl Manager {
-    /// Returns what `Line` each chip currently belongs to according to `Manager`'s line split state.
-    pub fn dbg_linesplit(&self) -> [LineId; ChipId::VARIANT_COUNT] {
-        ChipId::LIST.map(|chip_id| self.lines.split().line(chip_id))
+        let linea_spi = embassy_stm32::spi::Spi::new(
+            r_linea.linea_spi,
+            r_linea.linea_sck,
+            r_linea.linea_mosi,
+            r_linea.linea_miso,
+            r_linea.linea_tx_dma,
+            r_linea.linea_rx_dma,
+            Irqs,
+            spi_config,
+        );
+        let linea_cs = embassy_stm32::gpio::Output::new(r_linea.linea_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+        let linea_spi = ExclusiveDevice::new(linea_spi, linea_cs, Delay).unwrap();
+        let line_a: alias::Line = adbms6830b::line::Line::new(linea_spi);
+
+        let lineb_spi = embassy_stm32::spi::Spi::new(
+            r_lineb.lineb_spi,
+            r_lineb.lineb_sck,
+            r_lineb.lineb_mosi,
+            r_lineb.lineb_miso,
+            r_lineb.lineb_tx_dma,
+            r_lineb.lineb_rx_dma,
+            Irqs,
+            spi_config,
+        );
+        let lineb_cs = embassy_stm32::gpio::Output::new(r_lineb.lineb_cs, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::High);
+        let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
+        let line_b: alias::Line = adbms6830b::line::Line::new(lineb_spi);
+
+        let service: alias::Service = alias::Service::new(line_a, line_b, ServiceConfig {
+                // ik could just use `..Default::default()` but this is easier if we wanna change config in the future
+                segment_isospi_eval_period_ms: SEGMENT_ISOSPI_EVAL_PERIOD_MS,
+                service_frequency_ms: SERVICE_FREQUENCY_MS,
+                segment_isospi_min_attempts_for_fail: SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL,
+                segment_isospi_pec_failure_ratio_pct: SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT,
+                segment_isospi_min_attempts_to_open_window: SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW,
+                segment_isospi_max_split_attempts: SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS,
+                segment_isospi_max_failed_verification_attempts: SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS,
+                segment_isospi_recovery_startup_time_ms: SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS,
+        });
+
+        Self { service }
     }
 }
 
 #[embassy_executor::task]
 #[function_name::named]
-pub async fn manager_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
-    use embassy_time::{Duration, Timer};
-    
-    let manager = match Manager::init(r_linea, r_lineb).await {
-        Ok(manager) => manager,
-        Err(err) => {
-            defmt::error!("In {}(): Failed to initialize segment manager: {}", function_name!(), err);
-            return; 
-        }
-    };
+pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
+    let segments = Segments::new(r_linea, r_lineb);
 
-    loop {
-        Timer::after_millis(500).await;
-    }
+    // this runs the service. it never returns after you call it. the service will run at the configured `service_frequency_ms`. The closure allows you to
+    // execute code every time the service runs (intended to be used for diagnostics, but other stuff can go in there too)
+    segments.service.run_with_diagnostics(async |diagnostics| {
+        // accumulator diagnostics (not per-chip ones)
+        let accumulator = diagnostics.accumulator();
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PreviousState", desc = "State of the accumulator accumulator prior to this Service cycle. This is the state failed, attempts, and failure_pct were gathered under.", "{}", accumulator.previous_state());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/State", desc = "Current state of the accumulator window. This is the state resulting from the failed, attempts, and failure_pct values.", "{}", accumulator.state());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/FailurePctThreshold", desc = "Percentage of reads that must fail their PEC for a chip to be considered as \"failing\". Note: This is a constant value!", "{=u8}", accumulator.failure_pct_threshold());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/AccumulatorWindowPeriod", desc = "How long the accumulator evaluation window lasts, in ms. Basically, after a window opens, this is how long the window stays open to gather PEC data. Note: This is a constant value!", "{=u64}", accumulator.accumulator_window_period());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/MinAttemptsForFail", desc = "Fewest reads a chip must have taken part in before its failure rate is actually considered as meaning anything. Note: This is a constant value!", "{=usize}", accumulator.min_attempts_for_fail());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/BelowMinAttemptsToOpenWindowCount", desc = "This counts the number of times a chip has passed over opening a window because it hadn't taken part in SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW reads since the last time the Service has run.", "{=usize}", accumulator.below_min_attempts_to_open_window_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/BelowMinAttemptsForFailCount", desc = "This counts the number of times a chip could not be judged failed or not because it hadn't taken part in SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL reads over the whole window.", "{=usize}", accumulator.below_min_attempts_for_fail_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/MinAttemptsToOpenWindow", desc = "Fewest reads in a single update before that update's failure rate can open a window. Note: This is a constant value!", "{=usize}", accumulator.min_attempts_to_open_window());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PecMask", desc = "Current PEC mask state.", "{}", accumulator.pec_mask());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/RecoveryStartupTime", desc = "Length of grace period that occurs after startup or after a sleep, where the accumulator doesn't accumulate PEC errors. Note: This is a constant value!", "{=u64}", accumulator.recovery_startup_time());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/UpdatesWhileMaskedCount", desc = "This counts the number of times update_chips() (and therefore update() itself) has run while a PEC mask is active.", "{=usize}", accumulator.updates_while_masked_count());
+
+        // accumulator diagnostics (.failed() ones).
+        let failed = accumulator.failed();
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip0/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[0]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip1/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[1]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip2/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[2]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip3/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[3]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip4/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[4]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip5/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[5]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip6/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[6]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip7/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[7]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip8/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[8]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip9/failed", desc = "Total PEC failures counted for this chip during this window.", "{=usize}", failed[9]);
+
+        // accumulator diagnostics (.attempts() ones).
+        let attempts = accumulator.attempts();
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip0/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[0]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip1/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[1]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip2/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[2]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip3/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[3]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip4/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[4]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip5/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[5]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip6/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[6]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip7/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[7]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip8/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[8]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip9/attempts", desc = "Total read attempts counted for this chip during this window.", "{=usize}", attempts[9]);
+
+        // accumulator diagnostics (.failure_pct() ones).
+        let failure_pct = accumulator.failure_pct();
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip0/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[0]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip1/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[1]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip2/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[2]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip3/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[3]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip4/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[4]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip5/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[5]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip6/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[6]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip7/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[7]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip8/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[8]);
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Accumulator/PerChip/Chip9/failure_pct", desc = "This chip's PEC failure rate over the current window as a percentage (0 - 100).", "{=u8}", failure_pct[9]);
+
+        // timing diagnostics
+        let timing = diagnostics.timing();
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/period", desc = "The difference in time between the most recent Service cycle, and the Service cycle before that. In ms.", "{=u64}", match timing.period() { Some(duration) => duration.as_millis(), None => 0 });
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_period", desc = "The maximum period the Service has observed while running. In ms.", "{=u64}", timing.max_period().as_millis());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/work", desc = "How long the “work” of the Service took during the most recent Service cycle. In ms.", "{=u64}", timing.work().as_millis());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_work", desc = "The maximum work the Service has observed while running. In ms.", "{=u64}", timing.max_work().as_millis());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/lock_wait", desc = "How long the Service waited to acquire the mutex during the most recent cycle. In ms.", "{=u64}", timing.lock_wait().as_millis());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/max_lock_wait", desc = "The maximum lock_wait the Service has observed while running. In ms.", "{=u64}", timing.max_lock_wait().as_millis());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/service_frequency", desc = "The configured service frequency. This represents how long the Service waits after a cycle to wake up an run again. This is a const value!", "{=u64}", timing.service_frequency());
+
+        // chip state diagnostics
+        let chipstate = diagnostics.chip_state_diagnostics();
+        /// macro for the chipstate diagnostics since i don't want to copy paste this. the only parameter is the index of the chip
+        macro_rules! chipstate_diagnostics {
+            ($val:literal) => {
+                let state: adbms6830b::turnkey::api::ChipState = chipstate.chip_state()[$val];
+                let line: adbms6830b::turnkey::api::LineId = chipstate.chip_line()[$val];
+                let command_count = state.command_count();
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/line"], desc = "Which Line this chip is on.", "{}", line);
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/pec_failed_count"], desc = "Total number of times this chip has read in a failed PEC. (different to what the accumulator reports, since this is overall)", "{=usize}", state.pec_failed_count());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/pec_success_count"], desc = "Total number of times this chip has read in a successful PEC. (different to what the accumulator reports, since this is overall)", "{=usize}", state.pec_success_count());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/command_count_resets"], desc = "Number of times the command counter for this chip has been reset due to a sleep.", "{=usize}", state.command_count_resets());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/last_contacted"], desc = "Last time we heard from this chip with a good PEC. In ms since system boot.", "{=u64}", match state.last_contacted() { Some(instant) => instant.as_millis(), None => 0 });
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/expected"], desc = "What this chip’s counter “should” be. This is tracked from the commands sent to it.", "{=u8}", command_count.expected());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/reported"], desc = "What this chip reported on the last read of it that passed its PEC.", "{=u8}", command_count.reported());
+                defmt_monitor::monitor!(["Segments/ServiceDiagnostics/ChipState/Chip", $val, "/CommandCount/in_sync"], desc = "Whether the reported counter matches the expected one. This can be expected to be false in some cases, like after isoSPI recovers from a break.", "{=bool}", command_count.in_sync());
+            };
+        }
+        chipstate_diagnostics!(0);
+        chipstate_diagnostics!(1);
+        chipstate_diagnostics!(2);
+        chipstate_diagnostics!(3);
+        chipstate_diagnostics!(4);
+        chipstate_diagnostics!(5);
+        chipstate_diagnostics!(6);
+        chipstate_diagnostics!(7);
+        chipstate_diagnostics!(8);
+        chipstate_diagnostics!(9);
+
+        // general service diagnostics
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/sleep_detection_spi_error_count", desc = "Number of times sleep detection has failed due to a SPI::Error.", "{=usize}", diagnostics.sleep_detection_spi_error_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/break_detection_spi_error_count", desc = "Number of times break detection has failed due to a SPI::Error.", "{=usize}", diagnostics.break_detection_spi_error_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/cycles_count", desc = "Number of times the service has ran so far. This increments on every loop the service makes.", "{=usize}", diagnostics.cycles_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/split", desc = "The current split of chips between the isoSPI lines. (you can also see the per-chip line reports if that's easier to read)", "{}", diagnostics.split());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/max_split_attempts", desc = "The configured maximum split attempts for isoSPI recovery. This is a const value!", "{=usize}", diagnostics.max_split_attempts());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/max_verification_attempts", desc = "The configured maximum verification attempts for isoSPI recovery. This is a const value!", "{=usize}", diagnostics.max_verification_attempts());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/line_a_error_count", desc = "Total number of times Line A has failed with a SPI::Error.", "{=usize}", diagnostics.line_a_error_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/most_recent_line_a_error", desc = "Most recent Error that has occured on Line A. None if no errors have occured yet. (this is for HAL-level errors, and has nothing to do with PEC errors or anything like that)", "{}", diagnostics.most_recent_line_a_error());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/line_b_error_count", desc = "Total number of times Line B has failed with a SPI::Error.", "{=usize}", diagnostics.line_b_error_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/most_recent_line_b_error", desc = "Most recent Error that has occured on Line B. None if no errors have occured yet. (this is for HAL-level errors, and has nothing to do with PEC errors or anything like that)", "{}", diagnostics.most_recent_line_b_error());
+    }).await;
 }

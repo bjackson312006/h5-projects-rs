@@ -5,21 +5,26 @@ version = 4
 [[package]]
 name = "adbms6830b"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#e6073bcb3aba6144d660866b5b7df468101887a4"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#45d7a26379c194921c6dc90cc4675948656029ca"
 dependencies = [
  "adbms6830b-macros",
  "arbitrary-int",
  "bitfield-struct",
  "defmt 1.1.1",
  "device-driver",
+ "embassy-executor",
+ "embassy-sync",
  "embassy-time",
  "embedded-hal-async",
+ "embedded-hal-bus",
+ "function_name",
+ "variant_count",
 ]
 
 [[package]]
 name = "adbms6830b-macros"
 version = "0.0.0"
-source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#e6073bcb3aba6144d660866b5b7df468101887a4"
+source = "git+https://github.com/bjackson312006/firmware-rs.git?branch=adbms6830b#45d7a26379c194921c6dc90cc4675948656029ca"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -361,6 +366,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "defmt-monitor"
+version = "0.1.0"
+source = "git+https://github.com/bjackson312006/defmt-monitor.git?branch=main#40a457c6f6f2a76ad57d704e21b073e3bed1313d"
+dependencies = [
+ "defmt-monitor-macros",
+]
+
+[[package]]
+name = "defmt-monitor-macros"
+version = "0.1.0"
+source = "git+https://github.com/bjackson312006/defmt-monitor.git?branch=main#40a457c6f6f2a76ad57d704e21b073e3bed1313d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
+
+[[package]]
 name = "defmt-parser"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -695,6 +718,9 @@ name = "embedded-hal"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "361a90feb7004eca4019fb28352a9465666b24f840f5c3cddf0ff13920590b89"
+dependencies = [
+ "defmt 0.3.100",
+]
 
 [[package]]
 name = "embedded-hal-async"
@@ -702,6 +728,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c4c685bbef7fe13c3c6dd4da26841ed3980ef33e841cddfa15ce8a8fb3f1884"
 dependencies = [
+ "defmt 0.3.100",
  "embedded-hal 1.0.0",
 ]
 
@@ -1330,6 +1357,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.1",
+ "defmt-monitor",
  "defmt-rtt",
  "embassy-embedded-hal",
  "embassy-executor",

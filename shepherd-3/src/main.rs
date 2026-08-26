@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use adbms6830b::chip::registers::status::{StatusA, StatusB};
-use adbms6830b::spi::{Line, Error, Response};
 use defmt::{Debug2Format, info, warn};
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
@@ -54,5 +52,5 @@ async fn main(spawner: Spawner) {
 
     let r = split_resources!(p);
 
-    spawner.spawn(segments::manager_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::manager_task()."));
+    spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::manager_task()."));
 }
