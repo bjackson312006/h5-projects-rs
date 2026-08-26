@@ -5,6 +5,7 @@ use defmt::{Debug2Format, info, warn};
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::bind_interrupts;
+use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{dma, gpio, peripherals, spi, time::mhz, Peri};
 use embassy_time::{Delay, Timer};
 use embedded_hal_async::spi::SpiDevice;
@@ -15,6 +16,10 @@ mod segments;
 
 use assign_resources::assign_resources;
 assign_resources! {
+    /// Resources for default task.
+    default: DefaultResources {
+        watchdog: IWDG,
+    }
     /// Resources for segment IsoSPI Line A.
     segment_isospi_linea: SegmentIsoSpiLineAResources {
         // Line A SPI config
@@ -47,5 +52,34 @@ async fn main(spawner: Spawner) {
 
     let r = split_resources!(p);
 
-    spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::manager_task()."));
+    spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
+    spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
+}
+
+/// pet the dog beat the heart
+#[embassy_executor::task]
+pub async fn default_task(r: DefaultResources) -> ! {
+    /// Period between heartbeats. should be a good amount under `WATCHDOG_TIMEOUT_US`.
+    const HEARTBEAT_PERIOD_MS: u64 = 500;
+    /// Watchdog timeout in micros. if we stop petting for this long, the chip resets.
+    const WATCHDOG_TIMEOUT_US: u32 = 1_000_000;
+
+    let mut watchdog = IndependentWatchdog::new(r.watchdog, WATCHDOG_TIMEOUT_US);
+    watchdog.unleash();
+
+    let mut heartbeat_counter: usize = 0;
+
+    loop {
+        info!("heartbeat={}", &heartbeat_counter);
+        heartbeat_counter += 1;
+        Timer::after_millis(HEARTBEAT_PERIOD_MS).await;
+        watchdog.pet();
+    }
+}
+
+#[cortex_m_rt::exception]
+unsafe fn HardFault(_frame: &cortex_m_rt::ExceptionFrame) -> ! {
+    use cortex_m::peripheral::SCB;
+
+    SCB::sys_reset()
 }

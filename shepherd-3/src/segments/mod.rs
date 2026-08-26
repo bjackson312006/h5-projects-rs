@@ -113,7 +113,6 @@ impl Segments {
 }
 
 #[embassy_executor::task]
-#[function_name::named]
 pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
     let segments = Segments::new(r_linea, r_lineb);
 
