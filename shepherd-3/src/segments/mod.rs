@@ -109,7 +109,7 @@ mod alias {
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 
     /// Number of ADBMS6830B chips we have.
-    const ADBMS6830B_NUM_CHIPS: usize = const { super::chips::ChipId::VARIANT_COUNT };
+    pub const ADBMS6830B_NUM_CHIPS: usize = const { super::chips::ChipId::VARIANT_COUNT };
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     /// This is just a single SPI controller with a CS pin.
@@ -126,6 +126,14 @@ mod alias {
 
     /// Type alias representing our adbms6830b Service configuration.
     pub type Service = adbms6830b::turnkey::service::Service<ThreadModeRawMutex, SpiDevice, ADBMS6830B_NUM_CHIPS>;
+}
+
+/// Errors that may occur when configuring Segments.
+#[derive(Copy, Clone, Debug)]
+#[derive(defmt::Format)]
+pub enum ConfigureError {
+    /// We exceeded the number of attempts for waking up Segments and verifying our configs got written.
+    UnverifiedWakeup,
 }
 
 /// Guy in charge of the segments.
@@ -198,11 +206,160 @@ impl Segments {
 
         Self { service }
     }
+
+    /// Configures the segments by writing to ConfigA and ConfigB.
+    /// 
+    /// This is outside `new()` since we need to actually make SPI transactions to write the configs.
+    pub async fn configure(&self) -> Result<(), ConfigureError> {
+        use adbms6830b::chip::registers::{
+            config_a::{
+                ConfigA,
+                types::{ReferenceOn, ComparisonThresholdVoltage, SoakTimeOn, SoakTimeRange, OpenWireSoakTimeMultiplier, GpioPullDownConfig, IirFilterConfig}
+            },
+            config_b::{
+                ConfigB,
+                types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig}
+            }
+        };
+        use adbms6830b::turnkey::api::LineId;
+
+        let service = &self.service;
+
+        // Set up ConfigA.
+        let config_a = const { 
+            ConfigA::new()
+            .with_refon(ReferenceOn::On)
+            .with_cth(ComparisonThresholdVoltage::Mv25_05)
+            // not going to do `clear_diagnostic_flags()` like the C code since they are all cleared via ConfigA::new() and if were to manually re-clear them here it would have to be 8 separate calls for each flag
+            .with_soakon(SoakTimeOn::On)
+            .with_owrng(SoakTimeRange::Short)
+            .with_owa(OpenWireSoakTimeMultiplier::X1)
+            .with_fc(IirFilterConfig::Hz10)
+
+            // ConfigA: GPIO Pull-down settings
+            .with_gpio1(GpioPullDownConfig::PullDownOff)
+            .with_gpio2(GpioPullDownConfig::PullDownOff)
+            .with_gpio3(GpioPullDownConfig::PullDownOff)
+            .with_gpio4(GpioPullDownConfig::PullDownOff)
+            .with_gpio5(GpioPullDownConfig::PullDownOff)
+            .with_gpio6(GpioPullDownConfig::PullDownOff)
+            .with_gpio7(GpioPullDownConfig::PullDownOff)  // this is an on board therm for beta only
+            .with_gpio8(GpioPullDownConfig::PullDownOff)  // this is a on board therm
+            
+            // set outputs, 9=iso led 10=bal LED. false=lit up
+            .with_gpio9(GpioPullDownConfig::PullDownOff)
+            .with_gpio10(GpioPullDownConfig::PullDownOff)
+        };
+
+        // Set up ConfigB.
+        let config_b = const {
+            /// VOV setting from microvolts.
+            const VOV: OvervoltageThreshold = const {
+                const MICROVOLTS: i32 = 4_200_000; // 4.2 volts
+                OvervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VOV.")
+            };
+
+            /// VUV setting from microvolts.
+            const VUV: UndervoltageThreshold = const {
+                const MICROVOLTS: i32 = 2_500_000; // 2.5 volts
+                UndervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VUV.")
+            };
+
+            ConfigB::new()
+            .with_vov(VOV)
+            .with_vuv(VUV)
+            .with_dtmen(DischargeTimerMonitor::Disabled)
+            .with_dcto(DischargeTimerStatus::new().with_increments(0))
+            .with_dtrng(DischargeTimerRange::ShortRange)
+            .with_dcc1(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc2(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc3(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc4(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc5(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc6(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc7(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc8(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc9(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc10(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc11(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc12(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc13(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc14(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
+        };
+
+        // try to wake up the lines. if we exceed the max attempts something is probably pretty wrong
+        const MAX_ATTEMPTS: u8 = 10;
+        for attempt in 1..=MAX_ATTEMPTS {
+            if let Err(err) = service.wakeup().await {
+                defmt::warn!("Segments: wakeup failed on attempt {}: {}", attempt, err.to_kind());
+            }
+            if let Err(err) = service.write(&[config_a; alias::ADBMS6830B_NUM_CHIPS]).await {
+                defmt::warn!("Segments: WRCFGA failed on attempt {}: {}", attempt, err.to_kind());
+            }
+            if let Err(err) = service.write(&[config_b; alias::ADBMS6830B_NUM_CHIPS]).await {
+                defmt::warn!("Segments: WRCFGB failed on attempt {}: {}", attempt, err.to_kind());
+            }
+
+            // do a readback of CFGA to confirm our writes are making it
+            let readback = service.read::<ConfigA>().await;
+            let verified = readback.iter().all(|response| {
+                response.is_some_and(|r| r.pec().is_success() && config_a.first_mismatch(&r.data()).is_none())
+            });
+
+            if verified {
+                defmt::info!("Segments: configuration verified on attempt {}", attempt);
+                return Ok(());
+            }
+
+            // if we're on our last attempt, something is probably actually wrong. So we should specifically log what happened
+            if attempt == MAX_ATTEMPTS {
+                for line in [LineId::A, LineId::B] {
+                    if let Some(err) = readback.line_error(line) {
+                        defmt::error!("Segments: line {} transaction failed: {}", line, err.to_kind());
+                    }
+                }
+
+                for (chip, response) in readback.iter().enumerate() {
+                    match response {
+                        // if the whole line failed then there's not even a response we can parse to check
+                        None => defmt::error!("Segments: chip {}: no CFGA response", chip),
+
+                        // the SPI transaction technically succeeded but PEC is wrong so the data is slop
+                        Some(r) if r.pec().is_failed() => {
+                            defmt::error!("Segments: chip {}: CFGA readback failed PEC", chip)
+                        }
+
+                        // okay we have actual data that came back, so we can log specifically what fields mismatched
+                        Some(r) => {
+                            let actual = r.data();
+                            if config_a.first_mismatch(&actual).is_some() {
+                                defmt::error!("Segments: chip {}: CFGA readback mismatch:", chip);
+                                config_a.log_mismatches(&actual);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // this doesnt check ConfigB because ConfigA should probably be enough to confirm writes are going through
+
+            embassy_time::Timer::after_millis(10).await;
+        }
+        // if we get here then we have exeeded the max attempts
+        defmt::error!("Segments: configuration unverified after {} attempts", MAX_ATTEMPTS);
+        Err(ConfigureError::UnverifiedWakeup)
+
+
+    }
 }
 
 #[embassy_executor::task]
 pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
     let segments = Segments::new(r_linea, r_lineb);
+
+    segments.configure().await.expect("Failed to configure segments. Writing the configs and confirming them was not successful.");
 
     // this runs the service. it never returns after you call it. the service will run at the configured `service_frequency_ms`. The closure allows you to
     // execute code every time the service runs (intended to be used for diagnostics, but other stuff can go in there too)
