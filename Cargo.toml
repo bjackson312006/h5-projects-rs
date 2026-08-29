@@ -16,7 +16,7 @@ defmt-rtt = "1"
 cortex-m = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7"
 embedded-hal = { version = "1" }
-embedded-hal-bus = { version = "0.3", features = ["async"] }
+embedded-hal-bus = { version = "0.3", features = ["async", "defmt-03"] }
 embedded-io = { version = "0.7", features = ["defmt"] }
 embedded-io-async = { version = "0.7", features = ["defmt"] }
 panic-probe = { version = "1", features = ["print-defmt", "defmt-error"] }

@@ -2,6 +2,8 @@
 //! 
 //! For context, there are 5 segments, each with two ADBMS6830B chips. So, there are 10 ADBMS6830B chips total.
 
+use embassy_time::Timer;
+
 mod voltages;
 
 embassy_stm32::bind_interrupts!(struct Irqs {
@@ -134,6 +136,8 @@ mod alias {
 pub enum ConfigureError {
     /// We exceeded the number of attempts for waking up Segments and verifying our configs got written.
     UnverifiedWakeup,
+    /// Failed to send command to start conversions.
+    ConversionStartFailed,
 }
 
 /// Guy in charge of the segments.
@@ -149,7 +153,7 @@ impl Segments {
     pub fn new(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) -> Self {
         use embedded_hal_bus::spi::ExclusiveDevice;
         use embassy_time::{Delay};
-        use adbms6830b::turnkey::service::config::{
+        use adbms6830b::turnkey::service::service_config::{
             ServiceConfig,
             SEGMENT_ISOSPI_EVAL_PERIOD_MS,
             SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS,
@@ -206,164 +210,17 @@ impl Segments {
 
         Self { service }
     }
-
-    /// Configures the segments by writing to ConfigA and ConfigB.
-    /// 
-    /// This is outside `new()` since we need to actually make SPI transactions to write the configs.
-    pub async fn configure(&self) -> Result<(), ConfigureError> {
-        use adbms6830b::chip::registers::{
-            config_a::{
-                ConfigA,
-                types::{ReferenceOn, ComparisonThresholdVoltage, SoakTimeOn, SoakTimeRange, OpenWireSoakTimeMultiplier, GpioPullDownConfig, IirFilterConfig}
-            },
-            config_b::{
-                ConfigB,
-                types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig}
-            }
-        };
-        use adbms6830b::turnkey::api::LineId;
-
-        let service = &self.service;
-
-        // Set up ConfigA.
-        let config_a = const { 
-            ConfigA::new()
-            .with_refon(ReferenceOn::On)
-            .with_cth(ComparisonThresholdVoltage::Mv25_05)
-            // not going to do `clear_diagnostic_flags()` like the C code since they are all cleared via ConfigA::new() and if were to manually re-clear them here it would have to be 8 separate calls for each flag
-            .with_soakon(SoakTimeOn::On)
-            .with_owrng(SoakTimeRange::Short)
-            .with_owa(OpenWireSoakTimeMultiplier::X1)
-            .with_fc(IirFilterConfig::Hz10)
-
-            // ConfigA: GPIO Pull-down settings
-            .with_gpio1(GpioPullDownConfig::PullDownOff)
-            .with_gpio2(GpioPullDownConfig::PullDownOff)
-            .with_gpio3(GpioPullDownConfig::PullDownOff)
-            .with_gpio4(GpioPullDownConfig::PullDownOff)
-            .with_gpio5(GpioPullDownConfig::PullDownOff)
-            .with_gpio6(GpioPullDownConfig::PullDownOff)
-            .with_gpio7(GpioPullDownConfig::PullDownOff)  // this is an on board therm for beta only
-            .with_gpio8(GpioPullDownConfig::PullDownOff)  // this is a on board therm
-            
-            // set outputs, 9=iso led 10=bal LED. false=lit up
-            .with_gpio9(GpioPullDownConfig::PullDownOff)
-            .with_gpio10(GpioPullDownConfig::PullDownOff)
-        };
-
-        // Set up ConfigB.
-        let config_b = const {
-            /// VOV setting from microvolts.
-            const VOV: OvervoltageThreshold = const {
-                const MICROVOLTS: i32 = 4_200_000; // 4.2 volts
-                OvervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VOV.")
-            };
-
-            /// VUV setting from microvolts.
-            const VUV: UndervoltageThreshold = const {
-                const MICROVOLTS: i32 = 2_500_000; // 2.5 volts
-                UndervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VUV.")
-            };
-
-            ConfigB::new()
-            .with_vov(VOV)
-            .with_vuv(VUV)
-            .with_dtmen(DischargeTimerMonitor::Disabled)
-            .with_dcto(DischargeTimerStatus::new().with_increments(0))
-            .with_dtrng(DischargeTimerRange::ShortRange)
-            .with_dcc1(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc2(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc3(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc4(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc5(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc6(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc7(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc8(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc9(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc10(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc11(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc12(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc13(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc14(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
-            .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
-        };
-
-        // try to wake up the lines. if we exceed the max attempts something is probably pretty wrong
-        const MAX_ATTEMPTS: u8 = 10;
-        for attempt in 1..=MAX_ATTEMPTS {
-            if let Err(err) = service.wakeup().await {
-                defmt::warn!("Segments: wakeup failed on attempt {}: {}", attempt, err.to_kind());
-            }
-            if let Err(err) = service.write(&[config_a; alias::ADBMS6830B_NUM_CHIPS]).await {
-                defmt::warn!("Segments: WRCFGA failed on attempt {}: {}", attempt, err.to_kind());
-            }
-            if let Err(err) = service.write(&[config_b; alias::ADBMS6830B_NUM_CHIPS]).await {
-                defmt::warn!("Segments: WRCFGB failed on attempt {}: {}", attempt, err.to_kind());
-            }
-
-            // do a readback of CFGA to confirm our writes are making it
-            let readback = service.read::<ConfigA>().await;
-            let verified = readback.iter().all(|response| {
-                response.is_some_and(|r| r.pec().is_success() && config_a.first_mismatch(&r.data()).is_none())
-            });
-
-            if verified {
-                defmt::info!("Segments: configuration verified on attempt {}", attempt);
-                return Ok(());
-            }
-
-            // if we're on our last attempt, something is probably actually wrong. So we should specifically log what happened
-            if attempt == MAX_ATTEMPTS {
-                for line in [LineId::A, LineId::B] {
-                    if let Some(err) = readback.line_error(line) {
-                        defmt::error!("Segments: line {} transaction failed: {}", line, err.to_kind());
-                    }
-                }
-
-                for (chip, response) in readback.iter().enumerate() {
-                    match response {
-                        // if the whole line failed then there's not even a response we can parse to check
-                        None => defmt::error!("Segments: chip {}: no CFGA response", chip),
-
-                        // the SPI transaction technically succeeded but PEC is wrong so the data is slop
-                        Some(r) if r.pec().is_failed() => {
-                            defmt::error!("Segments: chip {}: CFGA readback failed PEC", chip)
-                        }
-
-                        // okay we have actual data that came back, so we can log specifically what fields mismatched
-                        Some(r) => {
-                            let actual = r.data();
-                            if config_a.first_mismatch(&actual).is_some() {
-                                defmt::error!("Segments: chip {}: CFGA readback mismatch:", chip);
-                                config_a.log_mismatches(&actual);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // this doesnt check ConfigB because ConfigA should probably be enough to confirm writes are going through
-
-            embassy_time::Timer::after_millis(10).await;
-        }
-        // if we get here then we have exeeded the max attempts
-        defmt::error!("Segments: configuration unverified after {} attempts", MAX_ATTEMPTS);
-        Err(ConfigureError::UnverifiedWakeup)
-
-
-    }
 }
 
 #[embassy_executor::task]
 pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb: crate::SegmentIsoSpiLineBResources) {
     let segments = Segments::new(r_linea, r_lineb);
 
-    segments.configure().await.expect("Failed to configure segments. Writing the configs and confirming them was not successful.");
-
     // this runs the service. it never returns after you call it. the service will run at the configured `service_frequency_ms`. The closure allows you to
     // execute code every time the service runs (intended to be used for diagnostics, but other stuff can go in there too)
-    segments.service.run_with_diagnostics(async |diagnostics| {
+    segments.service.run(
+        // SERVICE DIAGNOSTICS! this runs every service cycle with a new `diagnostics` provided from that cycle
+        async |diagnostics| {
         // timestamp for measuring how long these diagnostic logs themselves take. see the `Timing/diagnostics_overhead` topic near the bottom of closure
         let diagnostics_started = embassy_time::Instant::now();
 
@@ -466,12 +323,144 @@ pub async fn segments_task(r_linea: crate::SegmentIsoSpiLineAResources, r_lineb:
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/split", desc = "The current split of chips between the isoSPI lines. (you can also see the per-chip line reports if that's easier to read)", "{}", diagnostics.split());
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/max_split_attempts", desc = "The configured maximum split attempts for isoSPI recovery. This is a const value!", "{=usize}", diagnostics.max_split_attempts());
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/max_verification_attempts", desc = "The configured maximum verification attempts for isoSPI recovery. This is a const value!", "{=usize}", diagnostics.max_verification_attempts());
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/line_a_error_count", desc = "Total number of times Line A has failed with a SPI::Error.", "{=usize}", diagnostics.line_a_error_count());
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/most_recent_line_a_error", desc = "Most recent Error that has occured on Line A. None if no errors have occured yet. (this is for HAL-level errors, and has nothing to do with PEC errors or anything like that)", "{}", diagnostics.most_recent_line_a_error());
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/line_b_error_count", desc = "Total number of times Line B has failed with a SPI::Error.", "{=usize}", diagnostics.line_b_error_count());
-        defmt_monitor::monitor!("Segments/ServiceDiagnostics/most_recent_line_b_error", desc = "Most recent Error that has occured on Line B. None if no errors have occured yet. (this is for HAL-level errors, and has nothing to do with PEC errors or anything like that)", "{}", diagnostics.most_recent_line_b_error());
+
+        // line diagnostics
+        let line = diagnostics.line_diagnostics();
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Line/line_a_error_count", desc = "Total number of times Line A has failed with a SPI::Error.", "{=usize}", line.line_a_error_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Line/most_recent_line_a_error", desc = "Most recent Error that has occured on Line A. None if no errors have occured yet. (this is for HAL-level errors, and has nothing to do with PEC errors or anything like that)", "{}", line.most_recent_line_a_error());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Line/line_b_error_count", desc = "Total number of times Line B has failed with a SPI::Error.", "{=usize}", line.line_b_error_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Line/most_recent_line_b_error", desc = "Most recent Error that has occured on Line B. None if no errors have occured yet. (this is for HAL-level errors, and has nothing to do with PEC errors or anything like that)", "{}", line.most_recent_line_b_error());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Line/line_a_chips_detected_count", desc = "Current chips detected as REACHABLE on Line A. Not at all linked to the official line split. Can be affected by PEC noise. Will report an error if detection failed this service cycle.", "{}", line.line_a_chips_detected_count());
+        defmt_monitor::monitor!("Segments/ServiceDiagnostics/Line/line_b_chips_detected_count", desc = "Current chips detected as REACHABLE on Line B. Not at all linked to the official line split. Can be affected by PEC noise. Will report an error if detection failed this service cycle.", "{}", line.line_b_chips_detected_count());
 
         // how long the logging in this closure took
         defmt_monitor::monitor!("Segments/ServiceDiagnostics/Timing/diagnostics_overhead", desc = "How long the ServiceDiagnostics logging took. In micros", "{=u64}", embassy_time::Instant::now().saturating_duration_since(diagnostics_started).as_micros());
-    }).await;
+    },
+
+    // ADBMS6830B Service startup sequence! this gets called by the service at boot time, and whenever the service needs to restart the chips (isospi recovery or sleep detection)
+    async |api, _reason| {
+        use adbms6830b::chip::registers::{
+            config_a::{
+                ConfigA,
+                types::{ReferenceOn, ComparisonThresholdVoltage, SoakTimeOn, SoakTimeRange, OpenWireSoakTimeMultiplier, GpioPullDownConfig, IirFilterConfig}
+            },
+            config_b::{
+                ConfigB,
+                types::{OvervoltageThreshold, UndervoltageThreshold, DischargeTimerMonitor, DischargeTimerStatus, DischargeTimerRange, DischargeCellConfig}
+            }
+        };
+        use adbms6830b::chip::{
+            commands,
+            commands::adc::{
+                AdcvRedundancy, Acquisition, ResetFilter, OpenWire
+            }
+        };
+        use adbms6830b::turnkey::service::StartupResult;
+
+        // Reset chips to blank state.
+        if let Err(err) = api.reset().await {
+            defmt::error!("Segments: Failed to call `api.reset()` during ADBMS6830B Service startup. Error: {}", err.to_kind());
+            return StartupResult::Incomplete;
+        }
+
+        // Set up ConfigA.
+        let config_a = const { 
+            ConfigA::new()
+            .with_refon(ReferenceOn::On)
+            .with_cth(ComparisonThresholdVoltage::Mv25_05)
+            // not going to do `clear_diagnostic_flags()` like the C code since they are all cleared via ConfigA::new() and if were to manually re-clear them here it would have to be 8 separate calls for each flag
+            .with_soakon(SoakTimeOn::On)
+            .with_owrng(SoakTimeRange::Short)
+            .with_owa(OpenWireSoakTimeMultiplier::X1)
+            .with_fc(IirFilterConfig::Hz10)
+
+            // ConfigA: GPIO Pull-down settings
+            .with_gpio1(GpioPullDownConfig::PullDownOff)
+            .with_gpio2(GpioPullDownConfig::PullDownOff)
+            .with_gpio3(GpioPullDownConfig::PullDownOff)
+            .with_gpio4(GpioPullDownConfig::PullDownOff)
+            .with_gpio5(GpioPullDownConfig::PullDownOff)
+            .with_gpio6(GpioPullDownConfig::PullDownOff)
+            .with_gpio7(GpioPullDownConfig::PullDownOff)  // this is an on board therm for beta only
+            .with_gpio8(GpioPullDownConfig::PullDownOff)  // this is a on board therm
+            
+            // set outputs, 9=iso led 10=bal LED. false=lit up
+            .with_gpio9(GpioPullDownConfig::PullDownOff)
+            .with_gpio10(GpioPullDownConfig::PullDownOff)
+        };
+        match api.set_configa(&[config_a; alias::ADBMS6830B_NUM_CHIPS]).await {
+            Ok(_) => (),
+            Err(err) => {
+                defmt::error!("Segments: Failed to write ConfigA during ADBMS6830B Service startup. Error: {}", err);
+                return StartupResult::Incomplete;
+            }
+        }
+
+        // Set up ConfigB.
+        let config_b = const {
+            /// VOV setting from microvolts.
+            const VOV: OvervoltageThreshold = const {
+                const MICROVOLTS: i32 = 4_200_000; // 4.2 volts
+                OvervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VOV.")
+            };
+
+            /// VUV setting from microvolts.
+            const VUV: UndervoltageThreshold = const {
+                const MICROVOLTS: i32 = 2_500_000; // 2.5 volts
+                UndervoltageThreshold::from_microvolts(MICROVOLTS).expect("Invalid OvervoltageThreshold for VUV.")
+            };
+
+            ConfigB::new()
+            .with_vov(VOV)
+            .with_vuv(VUV)
+            .with_dtmen(DischargeTimerMonitor::Disabled)
+            .with_dcto(DischargeTimerStatus::new().with_increments(0))
+            .with_dtrng(DischargeTimerRange::ShortRange)
+            .with_dcc1(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc2(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc3(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc4(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc5(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc6(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc7(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc8(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc9(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc10(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc11(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc12(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc13(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc14(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
+            .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
+        };
+        match api.set_configb(&[config_b; alias::ADBMS6830B_NUM_CHIPS]).await {
+            Ok(_) => (),
+            Err(err) => {
+                defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
+                return StartupResult::Incomplete;
+            }
+        }
+
+        // Disable balancing on init.
+        if let Err(err) = api.command(commands::discharge::mute()).await {
+            defmt::error!("Segments: Failed to send `mute()` command to disable balancing during ADBMS6830B Service startup. Error = {}", err.to_kind());
+            return StartupResult::Incomplete;
+        }
+
+        // Start the ADCV conversions.
+        if let Err(err) = api.command(commands::adc::adcv(
+                AdcvRedundancy::Enabled, 
+                Acquisition::Continuous, 
+                ResetFilter::Reset, 
+                OpenWire::OffForAll)).await {
+            defmt::error!("Segments: Failed to send command to start adcv() conversions during ADBMS6830B Service startup. Error = {}", err.to_kind());
+            return StartupResult::Incomplete;
+        }
+
+        // okay startup is complete now
+        // we have to delay after init is successful for 500ms to wait for ADC to start up (this is what the C code does)
+        Timer::after_millis(500).await;
+        StartupResult::Complete
+    }
+    ).await;
 }
