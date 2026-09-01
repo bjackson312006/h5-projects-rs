@@ -1,0 +1,168 @@
+//! Module for caching SPI reads to the ADBMS6830B chips.
+
+use adbms6830b::{chip::registers::{
+    ReadableGroup,
+    pwm::{PwmA, PwmB},
+    results::{RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD},
+}, turnkey::api::LineId};
+use adbms6830b::line::Error;
+use adbms6830b::turnkey::api::Responses;
+use embedded_hal_async::i2c::NoAcknowledgeSource::Data;
+use super::alias::SpiError;
+use adbms6830b::line::PecStatus;
+use super::chips::ChipId;
+
+/// Thin wrapper around an array of responses for each chip.
+/// You can put any datatype in here for `T` as long as it makes
+/// sense to index it by a ChipId.
+/// 
+/// The point of this so responses can be interacted with
+/// via `ChipId` (and iterated over) instead of having to
+/// lookup raw arrays (whuch might require you to convert a ChipId to usize).
+pub struct IndexByChip<const N: usize, T> {
+    data: [T; N],
+}
+impl<const N: usize, T> IndexByChip<N, T> {
+    /// Retrives the data for `chip`.
+    pub const fn data(&self, chip: ChipId) -> &T {
+        let i: usize = chip as usize;
+        &self.data[i]
+    }
+    // u_TODO - probably implement iterator here possibly (i think iter is built in for arrays?)
+}
+
+/// Errors that may occur when trying to update a value in the cache.
+#[derive(Clone, Copy, Debug)]
+#[derive(defmt::Format)]
+pub enum UpdateError {
+    /// Line A failed during update. Inner contains the SPI error.
+    LineAFailed(Error<SpiError>),
+    /// Line B failed during update. Inner contains the SPI error.
+    LineBFailed(Error<SpiError>),
+    /// Both lines failed during update. Inner contains both SPI errors.
+    BothLinesFailed { linea_err: Error<SpiError>, lineb_err: Error<SpiError> },
+    /// Impossible error that should not be possible to happen. Using this instead of unreachable!()
+    /// or an unwrap/expect so an impossible error that somehow happens doesn't panic the whole bms
+    ImpossibleError,
+}
+
+/// Register reading for a single chip.
+pub struct Reading<R: ReadableGroup> {
+    data: R,
+    pec: PecStatus,
+}
+impl<R: ReadableGroup> Reading<R> {
+    /// Actual register reading.
+    pub const fn data(&self) -> R { self.data }
+    /// The PEC status of the reading.
+    pub const fn pec(&self) -> PecStatus { self.pec }
+}
+
+pub struct RegisterCache<const N: usize, R: ReadableGroup> {
+    /// Contains the read data for each chip. Starts out as `None` if this register hasn't been cached yet.
+    data: Option<IndexByChip<N, Reading<R>>>,
+    /// Last instant this register cache was successfully read over SPI and updated.
+    /// If no read has been made yet, this is None.
+    last_sucessful_read: Option<embassy_time::Instant>,
+}
+
+impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
+    /// New uninitialized register cache.
+    pub const fn new() -> Self {
+        Self {
+            data: None,
+            last_sucessful_read: None,
+        }
+    }
+
+    /// Last instant this register cache was successfully read over SPI and updated.
+    /// If no read has been made yet, this is None.
+    pub const fn last_sucessful_read(&self) -> Option<embassy_time::Instant> {
+        self.last_sucessful_read
+    }
+
+    /// Register read data for a specific chip.
+    /// If no read has been made yet, this is None.
+    pub const fn data(&self, chip: super::chips::ChipId) -> Option<&Reading<R>> {
+        match &self.data {
+            Some(data) => {
+                return Some(data.data(chip));
+            },
+            None => None,
+        }
+    }
+
+    /// Reads the register and updates the cache.
+    pub async fn update(&mut self, service: &super::alias::Service) -> Result<(), UpdateError> {
+        let data: [Reading<R>; N] = {
+            let responses = service.read::<R>().await;
+
+            match (responses.line_error(LineId::A), responses.line_error(LineId::B)) {
+                // Both lines failed.
+                (Some(linea_err), Some(lineb_err)) => {
+                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read on both Line A and Line B failed. Errors: linea_err={}, lineb_err={}", linea_err, lineb_err);
+                    return Err(UpdateError::BothLinesFailed{ linea_err: *linea_err, lineb_err: *lineb_err });
+                },
+
+                // Line A failed, but not Line B.
+                (Some(linea_err), None) => {
+                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read on Line A failed. Error: {}", linea_err);
+                    return Err(UpdateError::LineAFailed(*linea_err));
+                },
+
+                // Line B failed, but not Line A.
+                (None, Some(lineb_err)) => {
+                    defmt::error!("Segments: cache: In RegisterCache::update(): SPI Read on Line B failed. Error: {}", lineb_err);
+                    return Err(UpdateError::LineBFailed(*lineb_err));
+                },
+
+                // Neither line failed so we're good
+                (None, None) => (),
+            }
+
+            let readings: [Reading<R>; N] = {
+                let Some(readings) = responses.iter().map(|response| {
+                    response.map(|response| 
+                        Reading {
+                            data: response.data(),
+                            pec: response.pec(),
+                        }
+                    )})
+                    .collect::<Option<heapless::Vec<Reading<R>, N>>>()
+                    .and_then(|readings| readings.into_array::<N>().ok())
+                else {
+                    defmt::error!("Segments: cache: In RegisterCache::update(): a chip reading was `None` even though we already verified that no line errors occured. This should not be possible.");
+                    return Err(UpdateError::ImpossibleError);
+                };
+
+                readings
+            };
+
+            readings
+        };
+
+        self.data = Some(IndexByChip {
+            data
+        });
+        self.last_sucessful_read = Some(embassy_time::Instant::now());
+
+        Ok(())
+    }
+}
+
+pub struct CacheData<const N: usize> {
+    pub(super) rdraxa: RegisterCache<N, RedundantAuxillaryA>,
+    pub(super) rdraxb: RegisterCache<N, RedundantAuxillaryB>,
+    pub(super) rdraxc: RegisterCache<N, RedundantAuxillaryC>,
+    pub(super) rdraxd: RegisterCache<N, RedundantAuxillaryD>,
+}
+impl<'parent, const N: usize> CacheData<N> {
+    pub const fn new() -> Self {
+        Self {
+            rdraxa: RegisterCache::new(),
+            rdraxb: RegisterCache::new(),
+            rdraxc: RegisterCache::new(),
+            rdraxd: RegisterCache::new(),
+        }
+    }
+}
