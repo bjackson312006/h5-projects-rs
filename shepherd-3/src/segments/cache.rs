@@ -11,6 +11,7 @@ use embedded_hal_async::i2c::NoAcknowledgeSource::Data;
 use super::alias::{SpiError, Service};
 use adbms6830b::line::PecStatus;
 use super::chips::ChipId;
+use core::cell::Cell;
 
 /// Thin wrapper around an array of responses for each chip.
 /// You can put any datatype in here for `T` as long as it makes
@@ -62,24 +63,16 @@ impl<R: ReadableGroup> Reading<R> {
     pub const fn pec(&self) -> PecStatus { self.pec }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct RegisterCache<const N: usize, R: ReadableGroup> {
+/// Actual register cache data (held inside blocking mutex)
+#[derive(Copy, Clone)]
+pub struct RegisterCacheData<const N: usize, R: ReadableGroup> {
     /// Contains the read data for each chip. Starts out as `None` if this register hasn't been cached yet.
     data: Option<IndexByChip<N, Reading<R>>>,
     /// Last instant this register cache was successfully read over SPI and updated.
     /// If no read has been made yet, this is None.
     last_sucessful_read: Option<embassy_time::Instant>,
 }
-
-impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
-    /// New uninitialized register cache.
-    pub const fn new() -> Self {
-        Self {
-            data: None,
-            last_sucessful_read: None,
-        }
-    }
-
+impl<const N: usize, R: ReadableGroup> RegisterCacheData<N, R> {
     /// Last instant this register cache was successfully read over SPI and updated.
     /// If no read has been made yet, this is None.
     pub const fn last_sucessful_read(&self) -> Option<embassy_time::Instant> {
@@ -90,15 +83,37 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
     /// If no read has been made yet, this is None.
     pub const fn data(&self, chip: super::chips::ChipId) -> Option<&Reading<R>> {
         match &self.data {
-            Some(data) => {
-                return Some(data.data(chip));
-            },
+            Some(data) => Some(data.data(chip)),
             None => None,
         }
     }
+}
+
+
+pub struct RegisterCache<const N: usize, R: ReadableGroup> {
+    inner: embassy_sync::blocking_mutex::ThreadModeMutex<Cell<RegisterCacheData<N, R>>>,
+}
+
+impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
+    /// New uninitialized register cache.
+    pub const fn new() -> Self {
+        Self {
+            inner: embassy_sync::blocking_mutex::ThreadModeMutex::new(Cell::new(RegisterCacheData {
+                data: None,
+                last_sucessful_read: None,
+            }))
+        }
+    }
+
+    /// Copies out Register Cache data. Copy is needed here due to the mutex, since multiple threads read the cache. Hopefully compiler uses RVO?
+    pub fn data(&self) -> RegisterCacheData<N, R> {
+        self.inner.lock(|inner| {
+            inner.get()
+        })
+    }
 
     /// Reads the register and updates the cache.
-    pub async fn update(&mut self, service: &super::alias::Service) -> Result<(), UpdateError> {
+    pub async fn update(&self, service: &super::alias::Service) -> Result<(), UpdateError> {
         let data: [Reading<R>; N] = {
             let responses = service.read::<R>().await;
 
@@ -136,6 +151,7 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
                     .collect::<Option<heapless::Vec<Reading<R>, N>>>()
                     .and_then(|readings| readings.into_array::<N>().ok())
                 else {
+                    // u_Note: there is probably a way to restructure this so that ImpossibleError doesn't need to exist at all, but it might require going into the driver which is kinda annoying. so even though this existing is kinda gross it is probably fine for now
                     defmt::error!("Segments: cache: In RegisterCache::update(): a chip reading was `None` even though we already verified that no line errors occured. This should not be possible.");
                     return Err(UpdateError::ImpossibleError);
                 };
@@ -146,16 +162,17 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
             readings
         };
 
-        self.data = Some(IndexByChip {
-            data
+        self.inner.lock(|inner| {
+            inner.set(RegisterCacheData {
+                data: Some(IndexByChip { data }),
+                last_sucessful_read: Some(embassy_time::Instant::now()),
+            });
         });
-        self.last_sucessful_read = Some(embassy_time::Instant::now());
 
         Ok(())
     }
 }
 
-#[derive(Copy, Clone, Debug)]
 pub struct CacheData<const N: usize> {
     rdraxa: RegisterCache<N, RedundantAuxillaryA>,
     rdraxb: RegisterCache<N, RedundantAuxillaryB>,
@@ -178,10 +195,10 @@ pub mod redundant_aux {
 
     /// Cached Redundant Aux data.
     pub struct RedundantAux<const N: usize> {
-        pub rdraxa: RegisterCache<N, RedundantAuxillaryA>,
-        pub rdraxb: RegisterCache<N, RedundantAuxillaryB>,
-        pub rdraxc: RegisterCache<N, RedundantAuxillaryC>,
-        pub rdraxd: RegisterCache<N, RedundantAuxillaryD>,
+        pub rdraxa: RegisterCacheData<N, RedundantAuxillaryA>,
+        pub rdraxb: RegisterCacheData<N, RedundantAuxillaryB>,
+        pub rdraxc: RegisterCacheData<N, RedundantAuxillaryC>,
+        pub rdraxd: RegisterCacheData<N, RedundantAuxillaryD>,
     }
 
     impl<const N: usize> CacheData<N> {
@@ -218,12 +235,12 @@ pub mod redundant_aux {
         }
 
         /// Gets the current cached Redundant Aux data.
-        pub const fn get_redundant_aux(&self) -> RedundantAux<N> {
+        pub fn get_redundant_aux(&self) -> RedundantAux<N> {
             RedundantAux {
-                rdraxa: self.rdraxa,
-                rdraxb: self.rdraxb,
-                rdraxc: self.rdraxc,
-                rdraxd: self.rdraxd
+                rdraxa: self.rdraxa.data(),
+                rdraxb: self.rdraxb.data(),
+                rdraxc: self.rdraxc.data(),
+                rdraxd: self.rdraxd.data(),
             }
         }
     }
