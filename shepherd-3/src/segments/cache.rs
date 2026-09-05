@@ -12,26 +12,7 @@ use super::alias::{SpiError, Service};
 use adbms6830b::line::PecStatus;
 use super::chips::ChipId;
 use core::cell::Cell;
-
-/// Thin wrapper around an array of responses for each chip.
-/// You can put any datatype in here for `T` as long as it makes
-/// sense to index it by a ChipId.
-/// 
-/// The point of this so responses can be interacted with
-/// via `ChipId` (and iterated over) instead of having to
-/// lookup raw arrays (whuch might require you to convert a ChipId to usize).
-#[derive(Copy, Clone, Debug)]
-pub struct IndexByChip<const N: usize, T> {
-    data: [T; N],
-}
-impl<const N: usize, T> IndexByChip<N, T> {
-    /// Retrives the data for `chip`.
-    pub const fn data(&self, chip: ChipId) -> &T {
-        let i: usize = chip as usize;
-        &self.data[i]
-    }
-    // u_TODO - probably implement iterator here possibly (i think iter is built in for arrays?)
-}
+use super::chips::IndexByChip;
 
 /// Errors that may occur when trying to update a value in the cache.
 #[derive(Clone, Copy, Debug)]
@@ -79,13 +60,10 @@ impl<const N: usize, R: ReadableGroup> RegisterCacheData<N, R> {
         self.last_sucessful_read
     }
 
-    /// Register read data for a specific chip.
+    /// Register read data for each chip.
     /// If no read has been made yet, this is None.
-    pub const fn data(&self, chip: super::chips::ChipId) -> Option<&Reading<R>> {
-        match &self.data {
-            Some(data) => Some(data.data(chip)),
-            None => None,
-        }
+    pub const fn data(&self) -> &Option<IndexByChip<N, Reading<R>>> {
+        &self.data
     }
 }
 
@@ -168,7 +146,7 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
 
         self.inner.lock(|inner| {
             inner.set(RegisterCacheData {
-                data: Some(IndexByChip { data }),
+                data: Some(IndexByChip::new(data)),
                 last_sucessful_read: Some(embassy_time::Instant::now()),
             });
         });
@@ -199,13 +177,86 @@ impl<const N: usize> CacheData<N> {
 
 pub mod redundant_aux {
     use super::*;
+    use crate::units::ElectricPotential;
+    use uom::si::electric_potential::microvolt;
 
-    /// Cached Redundant Aux data.
-    pub struct RedundantAux<const N: usize> {
+    /// Raw Redundant Aux register readings.
+    pub struct Raw<const N: usize> {
         pub rdraxa: RegisterCacheData<N, RedundantAuxillaryA>,
         pub rdraxb: RegisterCacheData<N, RedundantAuxillaryB>,
         pub rdraxc: RegisterCacheData<N, RedundantAuxillaryC>,
         pub rdraxd: RegisterCacheData<N, RedundantAuxillaryD>,
+    }
+    
+    /// "Nice data" for a single chip.
+    pub struct NiceDataChip {
+        /// GPIO1 Voltage result.
+        pub gpio1_votlage: ElectricPotential,
+        /// GPIO2 Voltage result.
+        pub gpio2_votlage: ElectricPotential,
+        /// GPIO3 Voltage result.
+        pub gpio3_votlage: ElectricPotential,
+        /// GPIO4 Voltage result.
+        pub gpio4_votlage: ElectricPotential,
+        /// GPIO5 Voltage result.
+        pub gpio5_votlage: ElectricPotential,
+        /// GPIO6 Voltage result.
+        pub gpio6_votlage: ElectricPotential,
+        /// GPIO7 Voltage result.
+        pub gpio7_votlage: ElectricPotential,
+        /// GPIO8 Voltage result.
+        pub gpio8_votlage: ElectricPotential,
+        /// GPIO9 Voltage result.
+        pub gpio9_votlage: ElectricPotential,
+        /// GPIO10 Voltage result.
+        pub gpio10_votlage: ElectricPotential,
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData<const N: usize> { inner: IndexByChip<N, NiceDataChip> }
+    impl<const N: usize> core::ops::Deref for NiceData<N> {
+        type Target = IndexByChip<N, NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl<const N: usize> TryFrom<Raw<N>> for NiceData<N> {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: Raw<N>) -> Result<Self, Self::Error> {
+            let Some(rdraxa) = raw.rdraxa.data() else { return Err(()); };
+            let Some(rdraxb) = raw.rdraxb.data() else { return Err(()); };
+            let Some(rdraxc) = raw.rdraxc.data() else { return Err(()); };
+            let Some(rdraxd) = raw.rdraxd.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        NiceDataChip {
+                            gpio1_votlage: ElectricPotential::new::<microvolt>(rdraxa.get(chip).data().r_g1v().as_microvolts() as f32),
+                            gpio2_votlage: ElectricPotential::new::<microvolt>(rdraxa.get(chip).data().r_g2v().as_microvolts() as f32),
+                            gpio3_votlage: ElectricPotential::new::<microvolt>(rdraxa.get(chip).data().r_g3v().as_microvolts() as f32),
+
+                            gpio4_votlage: ElectricPotential::new::<microvolt>(rdraxb.get(chip).data().r_g4v().as_microvolts() as f32),
+                            gpio5_votlage: ElectricPotential::new::<microvolt>(rdraxb.get(chip).data().r_g5v().as_microvolts() as f32),
+                            gpio6_votlage: ElectricPotential::new::<microvolt>(rdraxb.get(chip).data().r_g6v().as_microvolts() as f32),
+
+                            gpio7_votlage: ElectricPotential::new::<microvolt>(rdraxc.get(chip).data().r_g7v().as_microvolts() as f32),
+                            gpio8_votlage: ElectricPotential::new::<microvolt>(rdraxc.get(chip).data().r_g8v().as_microvolts() as f32),
+                            gpio9_votlage: ElectricPotential::new::<microvolt>(rdraxc.get(chip).data().r_g9v().as_microvolts() as f32),
+
+                            gpio10_votlage: ElectricPotential::new::<microvolt>(rdraxd.get(chip).data().r_g10v().as_microvolts() as f32),
+                        }
+                    })
+                }
+            })
+        }
     }
 
     impl<const N: usize> CacheData<N> {
@@ -241,8 +292,8 @@ pub mod redundant_aux {
         }
 
         /// Gets the current cached Redundant Aux data.
-        pub fn get_redundant_aux(&self) -> RedundantAux<N> {
-            RedundantAux {
+        pub fn get_redundant_aux(&self) -> redundant_aux::Raw<N> {
+            redundant_aux::Raw {
                 rdraxa: self.rdraxa.data(),
                 rdraxb: self.rdraxb.data(),
                 rdraxc: self.rdraxc.data(),

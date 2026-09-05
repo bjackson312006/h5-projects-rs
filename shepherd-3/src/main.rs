@@ -15,6 +15,7 @@ mod segments;
 pub mod hardfault;
 pub mod can;
 pub mod clocks;
+pub mod units;
 
 use assign_resources::assign_resources;
 assign_resources! {

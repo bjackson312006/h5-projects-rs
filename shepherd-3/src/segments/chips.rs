@@ -26,6 +26,23 @@ pub enum ChipId {
     Chip9
 }
 impl ChipId {
+    /// Every `ChipId`, in discriminant order, so `ALL[i as usize] == i`.
+    ///
+    /// Keep this in the same order as the variants above. Indexing (e.g. `IndexByChip`)
+    /// relies on a chip's position here matching its `as usize` cast.
+    pub const ALL: [ChipId; ChipId::VARIANT_COUNT] = [
+        ChipId::Chip0,
+        ChipId::Chip1,
+        ChipId::Chip2,
+        ChipId::Chip3,
+        ChipId::Chip4,
+        ChipId::Chip5,
+        ChipId::Chip6,
+        ChipId::Chip7,
+        ChipId::Chip8,
+        ChipId::Chip9,
+    ];
+
     /// Whether a chip is Alpha or Beta.
     pub const fn kind(&self) -> ChipKind {
         if ((*self as usize) % 2) == 0 {
@@ -81,4 +98,75 @@ pub enum SegmentId {
     Segment2,
     Segment3,
     Segment4,
+}
+
+/// Small wrapper around an array of responses for each chip.
+/// You can put any datatype in here for `T` as long as it makes
+/// sense to index it by a ChipId.
+/// 
+/// The point of this so responses can be interacted with
+/// via `ChipId` (and iterated over) instead of having to
+/// lookup raw arrays (whuch might require you to convert a ChipId to usize).
+#[derive(Copy, Clone, Debug)]
+pub struct IndexByChip<const N: usize, T> { data: [T; N] }
+pub type Iter<'a, T> = core::iter::Zip<core::array::IntoIter<ChipId, { super::alias::ADBMS6830B_NUM_CHIPS }>, core::slice::Iter<'a, T>>;
+pub type IterMut<'a, T> = core::iter::Zip<core::array::IntoIter<ChipId, { super::alias::ADBMS6830B_NUM_CHIPS }>, core::slice::IterMut<'a, T>>;
+pub type IntoIter<const N: usize, T> = core::iter::Zip<core::array::IntoIter<ChipId, { super::alias::ADBMS6830B_NUM_CHIPS }>, core::array::IntoIter<T, N>>;
+
+impl<const N: usize, T> IndexByChip<N, T> {
+    /// Creates a new `IndexByChip` directly from an array.
+    pub const fn new(data: [T; N]) -> Self {
+        Self { data }
+    }
+
+    /// Compile-time checker that makes sure N is the same size as the number of chips we have.
+    const N_CHECK: () = assert!(
+        N == super::alias::ADBMS6830B_NUM_CHIPS,
+        "IndexByChip's N must equal the number of ChipId variants",
+    );
+
+    /// Retrives the data for `chip`.
+    pub const fn get(&self, chip: ChipId) -> &T {
+        let i: usize = chip as usize;
+        &self.data[i]
+    }
+
+    pub fn from_fn(mut f: impl FnMut(ChipId) -> T) -> Self {
+        let () = Self::N_CHECK;
+        Self { data: core::array::from_fn(|i| f(ChipId::ALL[i])) }
+    }
+
+    pub fn iter(&self) -> Iter<'_, T> {
+        let () = Self::N_CHECK;
+        ChipId::ALL.into_iter().zip(self.data.iter())
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        let () = Self::N_CHECK;
+        ChipId::ALL.into_iter().zip(self.data.iter_mut())
+    }
+}
+
+impl<const N: usize, T> IntoIterator for IndexByChip<N, T> {
+    type Item = (ChipId, T);
+    type IntoIter = IntoIter<N, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let () = Self::N_CHECK;
+        ChipId::ALL.into_iter().zip(self.data)
+    }
+}
+
+impl<'a, const N: usize, T> IntoIterator for &'a IndexByChip<N, T> {
+    type Item = (ChipId, &'a T);
+    type IntoIter = Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter { self.iter() }
+}
+
+impl<'a, const N: usize, T> IntoIterator for &'a mut IndexByChip<N, T> {
+    type Item = (ChipId, &'a mut T);
+    type IntoIter = IterMut<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter { self.iter_mut() }
 }
