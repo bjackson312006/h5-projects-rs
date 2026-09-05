@@ -3,6 +3,7 @@
 //! For context, there are 5 segments, each with two ADBMS6830B chips. So, there are 10 ADBMS6830B chips total.
 
 use embassy_time::Timer;
+use static_cell::StaticCell;
 
 mod voltages;
 mod cache;
@@ -57,7 +58,7 @@ pub enum ConfigureError {
 
 /// Guy in charge of the segments.
 pub struct Segments {
-    service: alias::Service,
+    service: &'static alias::Service,
 
     cache: cache::CacheData<{ alias::ADBMS6830B_NUM_CHIPS }>,
 }
@@ -113,17 +114,18 @@ impl Segments {
         let lineb_spi: alias::SpiDevice = ExclusiveDevice::new(lineb_spi, lineb_cs, Delay).unwrap();
         let line_b: alias::Line = adbms6830b::line::Line::new(lineb_spi);
 
-        let service: alias::Service = alias::Service::new(line_a, line_b, ServiceConfig {
-                // ik could just use `..Default::default()` but this is easier if we wanna change config in the future
-                segment_isospi_eval_period_ms: SEGMENT_ISOSPI_EVAL_PERIOD_MS,
-                service_frequency_ms: SERVICE_FREQUENCY_MS,
-                segment_isospi_min_attempts_for_fail: SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL,
-                segment_isospi_pec_failure_ratio_pct: SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT,
-                segment_isospi_min_attempts_to_open_window: SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW,
-                segment_isospi_max_split_attempts: SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS,
-                segment_isospi_max_failed_verification_attempts: SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS,
-                segment_isospi_recovery_startup_time_ms: SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS,
-        });
+        static SERVICE: StaticCell<alias::Service> = StaticCell::new();
+        let service: &'static alias::Service = SERVICE.init(alias::Service::new(line_a, line_b, ServiceConfig {
+            // ik could just use `..Default::default()` but this is easier if we wanna change config in the future
+            segment_isospi_eval_period_ms: SEGMENT_ISOSPI_EVAL_PERIOD_MS,
+            service_frequency_ms: SERVICE_FREQUENCY_MS,
+            segment_isospi_min_attempts_for_fail: SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL,
+            segment_isospi_pec_failure_ratio_pct: SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT,
+            segment_isospi_min_attempts_to_open_window: SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW,
+            segment_isospi_max_split_attempts: SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS,
+            segment_isospi_max_failed_verification_attempts: SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS,
+            segment_isospi_recovery_startup_time_ms: SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS,
+        }));
 
         Self { 
             service,

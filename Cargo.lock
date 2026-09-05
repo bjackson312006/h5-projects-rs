@@ -1490,6 +1490,7 @@ dependencies = [
  "function_name",
  "heapless",
  "panic-probe",
+ "static_cell",
  "variant_count",
 ]
 

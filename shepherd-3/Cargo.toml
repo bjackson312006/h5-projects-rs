@@ -21,7 +21,7 @@ panic-probe.workspace = true
 assign-resources.workspace = true
 can-handler.workspace = true
 cangen.workspace = true
-#static_cell.workspace = true
+static_cell.workspace = true
 
 function_name = { version = "0.3.0" }
 variant_count = { version = "1.2.1" }
