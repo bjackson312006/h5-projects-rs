@@ -91,13 +91,15 @@ impl<const N: usize, R: ReadableGroup> RegisterCacheData<N, R> {
 
 
 pub struct RegisterCache<const N: usize, R: ReadableGroup> {
+    service: &'static super::alias::Service,
     inner: embassy_sync::blocking_mutex::ThreadModeMutex<Cell<RegisterCacheData<N, R>>>,
 }
 
 impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
     /// New uninitialized register cache.
-    pub const fn new() -> Self {
+    pub const fn new(service: &'static super::alias::Service) -> Self {
         Self {
+            service,
             inner: embassy_sync::blocking_mutex::ThreadModeMutex::new(Cell::new(RegisterCacheData {
                 data: None,
                 last_sucessful_read: None,
@@ -113,7 +115,9 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
     }
 
     /// Reads the register and updates the cache.
-    pub async fn update(&self, service: &super::alias::Service) -> Result<(), UpdateError> {
+    pub async fn update(&self) -> Result<(), UpdateError> {
+        let service = self.service;
+
         let data: [Reading<R>; N] = {
             let responses = service.read::<R>().await;
 
@@ -174,18 +178,21 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
 }
 
 pub struct CacheData<const N: usize> {
+    service: &'static super::alias::Service,
+
     rdraxa: RegisterCache<N, RedundantAuxillaryA>,
     rdraxb: RegisterCache<N, RedundantAuxillaryB>,
     rdraxc: RegisterCache<N, RedundantAuxillaryC>,
     rdraxd: RegisterCache<N, RedundantAuxillaryD>,
 }
 impl<const N: usize> CacheData<N> {
-    pub const fn new() -> Self {
+    pub const fn new(service: &'static super::alias::Service) -> Self {
         Self {
-            rdraxa: RegisterCache::new(),
-            rdraxb: RegisterCache::new(),
-            rdraxc: RegisterCache::new(),
-            rdraxd: RegisterCache::new(),
+            service,
+            rdraxa: RegisterCache::new(service),
+            rdraxb: RegisterCache::new(service),
+            rdraxc: RegisterCache::new(service),
+            rdraxd: RegisterCache::new(service),
         }
     }
 }
@@ -204,13 +211,12 @@ pub mod redundant_aux {
     impl<const N: usize> CacheData<N> {
         /// Updates caches RedundantAuxillaryA through D with new data.
         /// 
-        /// ### Parameters
-        /// - `service`: The `Service` belonging to the caller. This function is meant to be called by `Segments`, so this will likely be (`self.service`).
-        /// 
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
-        pub async fn update_redundant_aux(&mut self, service: &Service) -> Result<(), UpdateError> {
+        pub async fn update_redundant_aux(&self) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::adc::Aux2InputSelection;
+
+            let service = self.service;
 
             /// Autoconvert timeout in ms.
             const TIMEOUT_MS: u64 = 10_000;
@@ -226,10 +232,10 @@ pub mod redundant_aux {
                 }
             }
 
-            self.rdraxa.update(service).await?;
-            self.rdraxb.update(service).await?;
-            self.rdraxc.update(service).await?;
-            self.rdraxd.update(service).await?;
+            self.rdraxa.update().await?;
+            self.rdraxb.update().await?;
+            self.rdraxc.update().await?;
+            self.rdraxd.update().await?;
 
             Ok(())
         }

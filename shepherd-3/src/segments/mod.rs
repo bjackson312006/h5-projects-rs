@@ -129,7 +129,7 @@ impl Segments {
 
         Self { 
             service,
-            cache: cache::CacheData::new(),
+            cache: cache::CacheData::new(service),
         }
     }
 
