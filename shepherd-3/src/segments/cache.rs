@@ -6,15 +6,16 @@ use adbms6830b::{chip::registers::{
     results::{RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
-use crate::segments::core::alias::{SpiError, Service, ADBMS6830B_NUM_CHIPS};
+use crate::segments::core::alias::{SpiError, Service};
 use adbms6830b::line::PecStatus;
 use super::chips::ChipId;
 use core::cell::Cell;
 use super::chips::IndexByChip;
 use super::core::alias;
+use super::chips::ADBMS6830B_NUM_CHIPS;
 
 /// Cache to hold read data.
-pub(super) static CACHE: CacheData<{ ADBMS6830B_NUM_CHIPS }> = CacheData::new();
+pub(super) static CACHE: CacheData = CacheData::new();
 
 /// Errors that may occur when trying to update a value in the cache.
 #[derive(Clone, Copy, Debug)]
@@ -48,14 +49,14 @@ impl<R: ReadableGroup> Reading<R> {
 
 /// Actual register cache data (held inside blocking mutex)
 #[derive(Copy, Clone)]
-pub struct RegisterCacheData<const N: usize, R: ReadableGroup> {
+pub struct RegisterCacheData<R: ReadableGroup> {
     /// Contains the read data for each chip. Starts out as `None` if this register hasn't been cached yet.
-    data: Option<IndexByChip<N, Reading<R>>>,
+    data: Option<IndexByChip<Reading<R>>>,
     /// Last instant this register cache was successfully read over SPI and updated.
     /// If no read has been made yet, this is None.
     last_sucessful_read: Option<embassy_time::Instant>,
 }
-impl<const N: usize, R: ReadableGroup> RegisterCacheData<N, R> {
+impl<R: ReadableGroup> RegisterCacheData<R> {
     /// Last instant this register cache was successfully read over SPI and updated.
     /// If no read has been made yet, this is None.
     pub const fn last_sucessful_read(&self) -> Option<embassy_time::Instant> {
@@ -64,17 +65,17 @@ impl<const N: usize, R: ReadableGroup> RegisterCacheData<N, R> {
 
     /// Register read data for each chip.
     /// If no read has been made yet, this is None.
-    pub const fn data(&self) -> &Option<IndexByChip<N, Reading<R>>> {
+    pub const fn data(&self) -> &Option<IndexByChip<Reading<R>>> {
         &self.data
     }
 }
 
 
-pub struct RegisterCache<const N: usize, R: ReadableGroup> {
-    inner: embassy_sync::blocking_mutex::ThreadModeMutex<Cell<RegisterCacheData<N, R>>>,
+pub struct RegisterCache<R: ReadableGroup> {
+    inner: embassy_sync::blocking_mutex::ThreadModeMutex<Cell<RegisterCacheData<R>>>,
 }
 
-impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
+impl<R: ReadableGroup> RegisterCache<R> {
     /// New uninitialized register cache.
     pub const fn new() -> Self {
         Self {
@@ -86,7 +87,7 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
     }
 
     /// Copies out Register Cache data. Copy is needed here due to the mutex, since multiple threads read the cache. Hopefully compiler uses RVO?
-    pub fn data(&self) -> RegisterCacheData<N, R> {
+    pub fn data(&self) -> RegisterCacheData<R> {
         self.inner.lock(|inner| {
             inner.get()
         })
@@ -94,7 +95,10 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
 
     /// Reads the register and updates the cache.
     pub async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-        let data: [Reading<R>; N] = {
+        use strum::EnumCount;
+        use super::chips::ChipId;
+
+        let data: [Reading<R>; ADBMS6830B_NUM_CHIPS] = {
             let responses = api.read::<R>().await;
 
             match (responses.line_error(LineId::A), responses.line_error(LineId::B)) {
@@ -120,7 +124,7 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
                 (None, None) => (),
             }
 
-            let readings: [Reading<R>; N] = {
+            let readings: [Reading<R>; ADBMS6830B_NUM_CHIPS] = {
                 let Some(readings) = responses.iter().map(|response| {
                     response.map(|response| 
                         Reading {
@@ -128,8 +132,8 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
                             pec: response.pec(),
                         }
                     )})
-                    .collect::<Option<heapless::Vec<Reading<R>, N>>>()
-                    .and_then(|readings| readings.into_array::<N>().ok())
+                    .collect::<Option<heapless::Vec<Reading<R>, { ADBMS6830B_NUM_CHIPS }>>>()
+                    .and_then(|readings| readings.into_array::<{ ADBMS6830B_NUM_CHIPS }>().ok())
                 else {
                     // u_Note: there is probably a way to restructure this so that ImpossibleError doesn't need to exist at all, but it might require going into the driver which is kinda annoying. so even though this existing is kinda gross it is probably fine for now
                     defmt::error!("Segments: cache: In RegisterCache::update(): a chip reading was `None` even though we already verified that no line errors occured. This should not be possible.");
@@ -153,13 +157,13 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
     }
 }
 
-pub struct CacheData<const N: usize> {
-    rdraxa: RegisterCache<N, RedundantAuxillaryA>,
-    rdraxb: RegisterCache<N, RedundantAuxillaryB>,
-    rdraxc: RegisterCache<N, RedundantAuxillaryC>,
-    rdraxd: RegisterCache<N, RedundantAuxillaryD>,
+pub struct CacheData {
+    rdraxa: RegisterCache<RedundantAuxillaryA>,
+    rdraxb: RegisterCache<RedundantAuxillaryB>,
+    rdraxc: RegisterCache<RedundantAuxillaryC>,
+    rdraxd: RegisterCache<RedundantAuxillaryD>,
 }
-impl<const N: usize> CacheData<N> {
+impl CacheData {
     pub(super) const fn new() -> Self {
         Self {
             rdraxa: RegisterCache::new(),
@@ -177,11 +181,11 @@ pub mod redundant_aux {
     use super::alias;
 
     /// Raw Redundant Aux register readings.
-    pub struct Raw<const N: usize> {
-        pub rdraxa: RegisterCacheData<N, RedundantAuxillaryA>,
-        pub rdraxb: RegisterCacheData<N, RedundantAuxillaryB>,
-        pub rdraxc: RegisterCacheData<N, RedundantAuxillaryC>,
-        pub rdraxd: RegisterCacheData<N, RedundantAuxillaryD>,
+    pub struct Raw {
+        pub rdraxa: RegisterCacheData<RedundantAuxillaryA>,
+        pub rdraxb: RegisterCacheData<RedundantAuxillaryB>,
+        pub rdraxc: RegisterCacheData<RedundantAuxillaryC>,
+        pub rdraxd: RegisterCacheData<RedundantAuxillaryD>,
     }
     
     /// "Nice data" for a single chip.
@@ -212,20 +216,20 @@ pub mod redundant_aux {
     /// 
     /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
     /// probably inspect that stuff from the `Raw` readings before converting to this.
-    pub struct NiceData<const N: usize> { inner: IndexByChip<N, NiceDataChip> }
-    impl<const N: usize> core::ops::Deref for NiceData<N> {
-        type Target = IndexByChip<N, NiceDataChip>;
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
 
         fn deref(&self) -> &Self::Target {
             &self.inner
         }
     }
-    impl<const N: usize> TryFrom<Raw<N>> for NiceData<N> {
+    impl TryFrom<Raw> for NiceData {
         type Error = ();
 
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
-        fn try_from(raw: Raw<N>) -> Result<Self, Self::Error> {
+        fn try_from(raw: Raw) -> Result<Self, Self::Error> {
             let Some(rdraxa) = raw.rdraxa.data() else { return Err(()); };
             let Some(rdraxb) = raw.rdraxb.data() else { return Err(()); };
             let Some(rdraxc) = raw.rdraxc.data() else { return Err(()); };
@@ -255,7 +259,7 @@ pub mod redundant_aux {
         }
     }
 
-    impl<const N: usize> CacheData<N> {
+    impl CacheData {
         /// Updates caches RedundantAuxillaryA through D with new data.
         /// 
         /// ### Returns
@@ -286,7 +290,7 @@ pub mod redundant_aux {
         }
 
         /// Gets the current cached Redundant Aux data.
-        pub fn get_redundant_aux(&self) -> redundant_aux::Raw<N> {
+        pub fn get_redundant_aux(&self) -> redundant_aux::Raw {
             redundant_aux::Raw {
                 rdraxa: self.rdraxa.data(),
                 rdraxb: self.rdraxb.data(),

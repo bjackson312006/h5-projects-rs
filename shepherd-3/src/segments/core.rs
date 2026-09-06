@@ -2,6 +2,7 @@
 
 use static_cell::StaticCell;
 use embassy_time::{ Timer };
+use super::chips::ADBMS6830B_NUM_CHIPS;
 
 embassy_stm32::bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
@@ -20,11 +21,8 @@ pub mod alias {
     };
     use crate::segments::{
         chips::ChipId,
-        cache::CacheData,
     };
-
-    /// Number of ADBMS6830B chips we have.
-    pub const ADBMS6830B_NUM_CHIPS: usize = const { ChipId::VARIANT_COUNT };
+    use super::ADBMS6830B_NUM_CHIPS;
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
     /// This is just a single SPI controller with a CS pin.
@@ -44,9 +42,6 @@ pub mod alias {
 
     /// Type alias for the `Api` (basically the same as `Service` but for the underlying API)
     pub type Api = adbms6830b::turnkey::api::Api<SpiDevice, ADBMS6830B_NUM_CHIPS>;
-
-    /// Type alias for the readings cache.
-    pub type Cache = CacheData<{ ADBMS6830B_NUM_CHIPS }>;
 }
 
 /// Guy in charge of the segments.
@@ -173,7 +168,7 @@ impl Segments {
                     .with_gpio9(GpioPullDownConfig::PullDownOff)
                     .with_gpio10(GpioPullDownConfig::PullDownOff)
                 };
-                match api.set_configa(&[config_a; alias::ADBMS6830B_NUM_CHIPS]).await {
+                match api.set_configa(&[config_a; super::chips::ADBMS6830B_NUM_CHIPS]).await {
                     Ok(_) => (),
                     Err(err) => {
                         defmt::error!("Segments: Failed to write ConfigA during ADBMS6830B Service startup. Error: {}", err);
@@ -218,7 +213,7 @@ impl Segments {
                     .with_dcc15(DischargeCellConfig::ShortingSwitchOff)
                     .with_dcc16(DischargeCellConfig::ShortingSwitchOff)
                 };
-                match api.set_configb(&[config_b; alias::ADBMS6830B_NUM_CHIPS]).await {
+                match api.set_configb(&[config_b; ADBMS6830B_NUM_CHIPS]).await {
                     Ok(_) => (),
                     Err(err) => {
                         defmt::error!("Segments: Failed to write ConfigB during ADBMS6830B Service startup. Error: {}", err);
