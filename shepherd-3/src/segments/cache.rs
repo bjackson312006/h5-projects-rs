@@ -5,6 +5,7 @@ use adbms6830b::{chip::registers::{
     pwm::{PwmA, PwmB},
     results::{RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD},
     results::{CellVoltagesA, CellVoltagesB, CellVoltagesC, CellVoltagesD, CellVoltagesE},
+    results::{AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
 use crate::segments::core::alias::{SpiError, Service};
@@ -173,6 +174,12 @@ pub struct CacheData {
     cvc: RegisterCache<CellVoltagesC>,
     cvd: RegisterCache<CellVoltagesD>,
     cve: RegisterCache<CellVoltagesE>,
+
+    aca: RegisterCache<AverageCellVoltagesA>,
+    acb: RegisterCache<AverageCellVoltagesB>,
+    acc: RegisterCache<AverageCellVoltagesC>,
+    acd: RegisterCache<AverageCellVoltagesD>,
+    ace: RegisterCache<AverageCellVoltagesE>,
 }
 impl CacheData {
     pub(super) const fn new() -> Self {
@@ -187,6 +194,12 @@ impl CacheData {
             cvc: RegisterCache::new(),
             cvd: RegisterCache::new(),
             cve: RegisterCache::new(),
+
+            aca: RegisterCache::new(),
+            acb: RegisterCache::new(),
+            acc: RegisterCache::new(),
+            acd: RegisterCache::new(),
+            ace: RegisterCache::new(),
         }
     }
 }
@@ -195,7 +208,7 @@ impl CacheData {
 pub mod redundant_aux {
     use super::*;
     use crate::units::ElectricPotential;
-    use uom::si::{electric_potential::microvolt, energy::Units::btu_59};
+    use uom::si::{electric_potential::microvolt};
     use super::alias;
 
     /// Raw Redundant Aux register readings.
@@ -447,6 +460,141 @@ pub mod cell_voltages {
                 cvc: self.cvc.data(),
                 cvd: self.cvd.data(),
                 cve: self.cve.data(),
+            }
+        }
+    }
+}
+
+/// Register groups AverageCellVoltages A through E (no F because we only use 13 cells).
+pub mod average_cell_voltages {
+    use super::*;
+    use crate::units::ElectricPotential;
+    use uom::si::{electric_potential::microvolt};
+    use super::alias;
+    use crate::segments::chips::cells::{IndexByCell, CellId};
+
+    /// Raw AverageCellVoltages register readings.
+    pub struct Raw {
+        pub aca: RegisterCacheData<AverageCellVoltagesA>,
+        pub acb: RegisterCacheData<AverageCellVoltagesB>,
+        pub acc: RegisterCacheData<AverageCellVoltagesC>,
+        pub acd: RegisterCacheData<AverageCellVoltagesD>,
+        pub ace: RegisterCacheData<AverageCellVoltagesE>,
+    }
+    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
+    
+    /// "Nice data" for a single chip.
+    pub struct NiceDataChip {
+        inner: IndexByCell<ElectricPotential>,
+    }
+    impl core::ops::Deref for NiceDataChip {
+        type Target = IndexByCell<ElectricPotential>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl TryFrom<Raw> for NiceData {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: Raw) -> Result<Self, Self::Error> {
+            let Some(a) = raw.aca.data() else { return Err(()); };
+            let Some(b) = raw.acb.data() else { return Err(()); };
+            let Some(c) = raw.acc.data() else { return Err(()); };
+            let Some(d) = raw.acd.data() else { return Err(()); };
+            let Some(e) = raw.ace.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        NiceDataChip {
+                            inner: IndexByCell::from_fn(|cell| {
+                                match cell {
+                                    CellId::Cell1 => ElectricPotential::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
+                                    CellId::Cell2 => ElectricPotential::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
+                                    CellId::Cell3 => ElectricPotential::new::<microvolt>(a.get(chip).data().ac3v().as_microvolts() as f32),
+
+                                    CellId::Cell4 => ElectricPotential::new::<microvolt>(b.get(chip).data().ac4v().as_microvolts() as f32),
+                                    CellId::Cell5 => ElectricPotential::new::<microvolt>(b.get(chip).data().ac5v().as_microvolts() as f32),
+                                    CellId::Cell6 => ElectricPotential::new::<microvolt>(b.get(chip).data().ac6v().as_microvolts() as f32),
+
+                                    CellId::Cell7 => ElectricPotential::new::<microvolt>(c.get(chip).data().ac7v().as_microvolts() as f32),
+                                    CellId::Cell8 => ElectricPotential::new::<microvolt>(c.get(chip).data().ac8v().as_microvolts() as f32),
+                                    CellId::Cell9 => ElectricPotential::new::<microvolt>(c.get(chip).data().ac9v().as_microvolts() as f32),
+
+                                    CellId::Cell10 => ElectricPotential::new::<microvolt>(d.get(chip).data().ac10v().as_microvolts() as f32),
+                                    CellId::Cell11 => ElectricPotential::new::<microvolt>(d.get(chip).data().ac11v().as_microvolts() as f32),
+                                    CellId::Cell12 => ElectricPotential::new::<microvolt>(d.get(chip).data().ac12v().as_microvolts() as f32),
+
+                                    CellId::Cell13 => ElectricPotential::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
+                                }
+                            })
+                        }
+                    })
+                }
+            })
+        }
+    }
+
+    impl CacheData {
+        /// Updates caches AverageCellVoltages A through E with new data.
+        /// 
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_average_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            use adbms6830b::chip::commands::snapshot::{snap, unsnap};
+
+            match api.command(snap()).await {
+                Ok(_) => (),
+                Err(err) => {
+                    defmt::error!("Segments: Cache: in `update_average_cell_voltages(): call to `api.command(snap())` resulted in an error. Error: {}", err);
+                    return Err(UpdateError::SnapError(err));
+                }
+            }
+
+            let result: Result<(), UpdateError> = async {
+                self.aca.update(api).await?;
+                self.acb.update(api).await?;
+                self.acc.update(api).await?;
+                self.acd.update(api).await?;
+                self.ace.update(api).await?;
+                Ok(())
+            }.await;
+
+            match api.command(unsnap()).await {
+                Ok(_) => (),
+                Err(err) => {
+                    defmt::error!("Segments: Cache: in `update_average_cell_voltages(): call to `api.command(unsnap())` resulted in an error. Error: {}", err);
+                    return Err(UpdateError::UnsnapError(err));
+                }
+            }
+
+            result
+        }
+
+        /// Gets the current cached Average Cell Voltages data.
+        pub fn get_average_cell_voltages(&self) -> average_cell_voltages::Raw {
+            average_cell_voltages::Raw {
+                aca: self.aca.data(),
+                acb: self.acb.data(),
+                acc: self.acc.data(),
+                acd: self.acd.data(),
+                ace: self.ace.data(),
             }
         }
     }
