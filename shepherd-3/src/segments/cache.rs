@@ -7,12 +7,15 @@ use adbms6830b::{chip::registers::{
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
 use adbms6830b::turnkey::api::Responses;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embedded_hal_async::i2c::NoAcknowledgeSource::Data;
 use super::alias::{SpiError, Service};
 use adbms6830b::line::PecStatus;
 use super::chips::ChipId;
 use core::cell::Cell;
 use super::chips::IndexByChip;
+/// Cache to hold read data.
+pub static CACHE: CacheData<{ super::alias::ADBMS6830B_NUM_CHIPS }> = CacheData::new();
 
 /// Errors that may occur when trying to update a value in the cache.
 #[derive(Clone, Copy, Debug)]
@@ -69,15 +72,13 @@ impl<const N: usize, R: ReadableGroup> RegisterCacheData<N, R> {
 
 
 pub struct RegisterCache<const N: usize, R: ReadableGroup> {
-    service: &'static super::alias::Service,
     inner: embassy_sync::blocking_mutex::ThreadModeMutex<Cell<RegisterCacheData<N, R>>>,
 }
 
 impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
     /// New uninitialized register cache.
-    pub const fn new(service: &'static super::alias::Service) -> Self {
+    pub const fn new() -> Self {
         Self {
-            service,
             inner: embassy_sync::blocking_mutex::ThreadModeMutex::new(Cell::new(RegisterCacheData {
                 data: None,
                 last_sucessful_read: None,
@@ -93,11 +94,9 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
     }
 
     /// Reads the register and updates the cache.
-    pub async fn update(&self) -> Result<(), UpdateError> {
-        let service = self.service;
-
+    pub async fn update(&self, api: &mut super::alias::Api) -> Result<(), UpdateError> {
         let data: [Reading<R>; N] = {
-            let responses = service.read::<R>().await;
+            let responses = api.read::<R>().await;
 
             match (responses.line_error(LineId::A), responses.line_error(LineId::B)) {
                 // Both lines failed.
@@ -156,21 +155,18 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
 }
 
 pub struct CacheData<const N: usize> {
-    service: &'static super::alias::Service,
-
     rdraxa: RegisterCache<N, RedundantAuxillaryA>,
     rdraxb: RegisterCache<N, RedundantAuxillaryB>,
     rdraxc: RegisterCache<N, RedundantAuxillaryC>,
     rdraxd: RegisterCache<N, RedundantAuxillaryD>,
 }
 impl<const N: usize> CacheData<N> {
-    pub const fn new(service: &'static super::alias::Service) -> Self {
+    pub(super) const fn new() -> Self {
         Self {
-            service,
-            rdraxa: RegisterCache::new(service),
-            rdraxb: RegisterCache::new(service),
-            rdraxc: RegisterCache::new(service),
-            rdraxd: RegisterCache::new(service),
+            rdraxa: RegisterCache::new(),
+            rdraxb: RegisterCache::new(),
+            rdraxc: RegisterCache::new(),
+            rdraxd: RegisterCache::new(),
         }
     }
 }
@@ -179,6 +175,7 @@ pub mod redundant_aux {
     use super::*;
     use crate::units::ElectricPotential;
     use uom::si::electric_potential::microvolt;
+    use crate::segments::alias;
 
     /// Raw Redundant Aux register readings.
     pub struct Raw<const N: usize> {
@@ -264,10 +261,8 @@ pub mod redundant_aux {
         /// 
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
-        pub async fn update_redundant_aux(&self) -> Result<(), UpdateError> {
+        pub async fn update_redundant_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
             use adbms6830b::chip::commands::adc::Aux2InputSelection;
-
-            let service = self.service;
 
             /// Autoconvert timeout in ms.
             const TIMEOUT_MS: u64 = 10_000;
@@ -275,7 +270,7 @@ pub mod redundant_aux {
             // u_TODO - double check this later. i think ADAX2 is what should be polled before reading but dunno. it might be ADAX2 plus normal ADAX?
             // or maybe no manual poll needs to be done at all if its a continuous conversion. but i forget
             // also make sure parameter is correct
-            match service.adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await {
+            match api.adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await {
                 Ok(_) => (),
                 Err(err) => {
                     defmt::error!("Segments: Cache: in `update_redundant_aux(): call to `service.adax2_autoconvert` resulted in an error. Error: {}", err);
@@ -283,10 +278,10 @@ pub mod redundant_aux {
                 }
             }
 
-            self.rdraxa.update().await?;
-            self.rdraxb.update().await?;
-            self.rdraxc.update().await?;
-            self.rdraxd.update().await?;
+            self.rdraxa.update(api).await?;
+            self.rdraxb.update(api).await?;
+            self.rdraxc.update(api).await?;
+            self.rdraxd.update(api).await?;
 
             Ok(())
         }
