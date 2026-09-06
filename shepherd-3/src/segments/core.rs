@@ -375,6 +375,9 @@ pub mod task {
 
         const REDUNDANT_AUX_MAX_WAITERS: usize = 10;
         pub static REDUNDANT_AUX_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, REDUNDANT_AUX_MAX_WAITERS> = Broadcast::new();
+
+        const CELL_VOLTAGES_MAX_WAITERS: usize = 10;
+        pub static CELL_VOLTAGES_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, CELL_VOLTAGES_MAX_WAITERS> = Broadcast::new();
     }
 
     /// A unit of work the segments task runs on a schedule.
@@ -385,6 +388,8 @@ pub mod task {
         Service,
         /// Refreshes the Redundant Aux portion of the Cache.
         RedundantAux,
+        /// Refreshes the Cell Voltages portion of the Cache.
+        CellVoltages,
     }
 
     impl Job {
@@ -399,6 +404,14 @@ pub mod task {
                         return;
                     }
                     signals::REDUNDANT_AUX_FRESH_DATA_SIGNAL.signal();
+                }
+
+                Job::CellVoltages => {
+                    if let Err(err) = cache::CACHE.update_cell_voltages(segments.service.api()).await {
+                        defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
+                        return;
+                    }
+                    signals::CELL_VOLTAGES_FRESH_DATA_SIGNAL.signal();
                 }
             }
         }
@@ -435,13 +448,16 @@ pub mod task {
         /// Frequency (in ms) at which the segments task should run the segments Service.
         const SEGMENTS_SERVICE_FREQUENCY_MS: u64 = 300;
         /// Frequency (in ms) at which the segments task should update the Redundant Aux cache.
-        const SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS: u64 = 100;
+        const SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS: u64 = 300;
+        /// Frequency (in ms) at which the segments task should update the Cell Voltages cache.
+        const SEGMENTS_CELL_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
 
         let mut segments = Segments::new(r_linea, r_lineb);
 
         // List of everything this task does. (to add a job, add an entry here and a match case in Job::run())
         let mut schedule = [
             Scheduled::every(SEGMENTS_SERVICE_FREQUENCY_MS, Job::Service),
+            Scheduled::every(SEGMENTS_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::CellVoltages),
             Scheduled::every(SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS, Job::RedundantAux),
         ];
 

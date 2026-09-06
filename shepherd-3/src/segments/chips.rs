@@ -14,7 +14,6 @@ pub mod cells {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[derive(defmt::Format)]
     pub enum CellId {
-        Cell0,
         Cell1,
         Cell2,
         Cell3,
@@ -27,6 +26,7 @@ pub mod cells {
         Cell10,
         Cell11,
         Cell12,
+        Cell13,
     }
 
     /// Like IndexByChip but for cells
