@@ -1,24 +1,89 @@
-use strum::VariantArray;
-use strum::EnumCount;
+use strum::{VariantArray, EnumCount};
 
 use super::core::alias;
 
-/// ID for each cell per ADBMS6830B chip. There are 13 cells per chip.
-#[repr(usize)]
-#[derive(variant_count::VariantCount)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(defmt::Format)]
-pub enum CellId {
-    Cell0,
-    Cell1,
-    Cell2,
-    Cell3,
-    Cell4,
-    Cell5,
-    Cell6,
-    Cell7,
-    Cell8,
-    Cell9,
+pub mod cells {
+    use strum::{VariantArray, EnumCount};
+
+    /// How many cells are on each chip in our setup.
+    pub const ADBMS6830B_NUM_CELLS_PER_CHIP: usize = CellId::COUNT;
+
+    /// ID for each cell per ADBMS6830B chip. There are 13 cells per chip.
+    #[repr(usize)]
+    #[derive(strum::EnumCount, strum::VariantArray)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(defmt::Format)]
+    pub enum CellId {
+        Cell0,
+        Cell1,
+        Cell2,
+        Cell3,
+        Cell4,
+        Cell5,
+        Cell6,
+        Cell7,
+        Cell8,
+        Cell9,
+        Cell10,
+        Cell11,
+        Cell12,
+    }
+
+    /// Like IndexByChip but for cells
+    #[derive(Copy, Clone, Debug)]
+    pub struct IndexByCell<T> { data: [T; ADBMS6830B_NUM_CELLS_PER_CHIP] }
+    pub type CellIds = core::iter::Copied<core::slice::Iter<'static, CellId>>;
+    pub type Iter<'borrow, T> = core::iter::Zip<CellIds, core::slice::Iter<'borrow, T>>;
+    pub type IterMut<'borrow, T> = core::iter::Zip<CellIds, core::slice::IterMut<'borrow, T>>;
+    pub type IntoIter<T> = core::iter::Zip<CellIds, core::array::IntoIter<T, { ADBMS6830B_NUM_CELLS_PER_CHIP }>>;
+
+    impl<T> IndexByCell<T> {
+        /// Creates a new `IndexByCell` directly from an array.
+        pub const fn new(data: [T; ADBMS6830B_NUM_CELLS_PER_CHIP]) -> Self {
+            Self { data }
+        }
+
+        /// Retrives the data for `cell`.
+        pub const fn get(&self, cell: CellId) -> &T {
+            let i: usize = cell as usize;
+            &self.data[i]
+        }
+
+        pub fn from_fn(mut f: impl FnMut(CellId) -> T) -> Self {
+            Self { data: core::array::from_fn(|i| f(CellId::VARIANTS[i])) }
+        }
+
+        pub fn iter(&self) -> Iter<'_, T> {
+            CellId::VARIANTS.iter().copied().zip(self.data.iter())
+        }
+
+        pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+            CellId::VARIANTS.iter().copied().zip(self.data.iter_mut())
+        }
+    }
+
+    impl<T> IntoIterator for IndexByCell<T> {
+        type Item = (CellId, T);
+        type IntoIter = IntoIter<T>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            CellId::VARIANTS.iter().copied().zip(self.data)
+        }
+    }
+
+    impl<'borrow, T> IntoIterator for &'borrow IndexByCell<T> {
+        type Item = (CellId, &'borrow T);
+        type IntoIter = Iter<'borrow, T>;
+
+        fn into_iter(self) -> Self::IntoIter { self.iter() }
+    }
+
+    impl<'borrow, T> IntoIterator for &'borrow mut IndexByCell<T> {
+        type Item = (CellId, &'borrow mut T);
+        type IntoIter = IterMut<'borrow, T>;
+
+        fn into_iter(self) -> Self::IntoIter { self.iter_mut() }
+    }
 }
 
 /// Number of ADBMS6830B chips we have.
@@ -121,8 +186,8 @@ pub enum SegmentId {
 #[derive(Copy, Clone, Debug)]
 pub struct IndexByChip<T> { data: [T; ADBMS6830B_NUM_CHIPS] }
 pub type ChipIds = core::iter::Copied<core::slice::Iter<'static, ChipId>>;
-pub type Iter<'a, T> = core::iter::Zip<ChipIds, core::slice::Iter<'a, T>>;
-pub type IterMut<'a, T> = core::iter::Zip<ChipIds, core::slice::IterMut<'a, T>>;
+pub type Iter<'borrow, T> = core::iter::Zip<ChipIds, core::slice::Iter<'borrow, T>>;
+pub type IterMut<'borrow, T> = core::iter::Zip<ChipIds, core::slice::IterMut<'borrow, T>>;
 pub type IntoIter<T> = core::iter::Zip<ChipIds, core::array::IntoIter<T, { ADBMS6830B_NUM_CHIPS }>>;
 
 impl<T> IndexByChip<T> {
