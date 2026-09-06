@@ -381,6 +381,9 @@ pub mod task {
 
         const AVERAGE_CELL_VOLTAGES_MAX_WAITERS: usize = 10;
         pub static AVERAGE_CELL_VOLTAGES_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, AVERAGE_CELL_VOLTAGES_MAX_WAITERS> = Broadcast::new();
+
+        const FILTERED_CELL_VOLTAGES_MAX_WAITERS: usize = 10;
+        pub static FILTERED_CELL_VOLTAGES_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, FILTERED_CELL_VOLTAGES_MAX_WAITERS> = Broadcast::new();
     }
 
     /// A unit of work the segments task runs on a schedule.
@@ -395,6 +398,8 @@ pub mod task {
         CellVoltages,
         /// Refreshes the Average Cell Voltages portion of the Cache.
         AverageCellVoltages,
+        /// Refreshes the Filtered Cell Voltages portion of the Cache.
+        FilteredCellVoltages,
     }
 
     impl Job {
@@ -425,6 +430,14 @@ pub mod task {
                         return;
                     }
                     signals::AVERAGE_CELL_VOLTAGES_FRESH_DATA_SIGNAL.signal();
+                }
+
+                Job::FilteredCellVoltages => {
+                    if let Err(err) = cache::CACHE.update_filtered_cell_voltages(segments.service.api()).await {
+                        defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
+                        return;
+                    }
+                    signals::FILTERED_CELL_VOLTAGES_FRESH_DATA_SIGNAL.signal();
                 }
             }
         }
@@ -466,6 +479,8 @@ pub mod task {
         const SEGMENTS_CELL_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
         /// Frequency (in ms) at which the segments task should update the Average Cell Voltages cache.
         const SEGMENTS_AVERAGE_CELL_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
+        /// Frequency (in ms) at which the segments task should update the Filtered Cell Voltages cache.
+        const SEGMENTS_FILTERED_CELL_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
 
         let mut segments = Segments::new(r_linea, r_lineb);
 
@@ -473,6 +488,7 @@ pub mod task {
         let mut schedule = [
             Scheduled::every(SEGMENTS_SERVICE_FREQUENCY_MS, Job::Service),
             Scheduled::every(SEGMENTS_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::CellVoltages),
+            Scheduled::every(SEGMENTS_FILTERED_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::FilteredCellVoltages),
             Scheduled::every(SEGMENTS_AVERAGE_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::AverageCellVoltages),
             Scheduled::every(SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS, Job::RedundantAux),
         ];

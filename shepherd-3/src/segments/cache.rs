@@ -6,6 +6,7 @@ use adbms6830b::{chip::registers::{
     results::{RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD},
     results::{CellVoltagesA, CellVoltagesB, CellVoltagesC, CellVoltagesD, CellVoltagesE},
     results::{AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE},
+    results::{FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
 use crate::segments::core::alias::{SpiError, Service};
@@ -180,6 +181,12 @@ pub struct CacheData {
     acc: RegisterCache<AverageCellVoltagesC>,
     acd: RegisterCache<AverageCellVoltagesD>,
     ace: RegisterCache<AverageCellVoltagesE>,
+
+    fca: RegisterCache<FilteredCellVoltagesA>,
+    fcb: RegisterCache<FilteredCellVoltagesB>,
+    fcc: RegisterCache<FilteredCellVoltagesC>,
+    fcd: RegisterCache<FilteredCellVoltagesD>,
+    fce: RegisterCache<FilteredCellVoltagesE>,
 }
 impl CacheData {
     pub(super) const fn new() -> Self {
@@ -200,6 +207,12 @@ impl CacheData {
             acc: RegisterCache::new(),
             acd: RegisterCache::new(),
             ace: RegisterCache::new(),
+
+            fca: RegisterCache::new(),
+            fcb: RegisterCache::new(),
+            fcc: RegisterCache::new(),
+            fcd: RegisterCache::new(),
+            fce: RegisterCache::new(),
         }
     }
 }
@@ -595,6 +608,141 @@ pub mod average_cell_voltages {
                 acc: self.acc.data(),
                 acd: self.acd.data(),
                 ace: self.ace.data(),
+            }
+        }
+    }
+}
+
+/// Register groups FilteredCellVoltages A through E (no F because we only use 13 cells).
+pub mod filtered_cell_voltages {
+    use super::*;
+    use crate::units::ElectricPotential;
+    use uom::si::{electric_potential::microvolt};
+    use super::alias;
+    use crate::segments::chips::cells::{IndexByCell, CellId};
+
+    /// Raw FilteredCellVoltages register readings.
+    pub struct Raw {
+        pub fca: RegisterCacheData<FilteredCellVoltagesA>,
+        pub fcb: RegisterCacheData<FilteredCellVoltagesB>,
+        pub fcc: RegisterCacheData<FilteredCellVoltagesC>,
+        pub fcd: RegisterCacheData<FilteredCellVoltagesD>,
+        pub fce: RegisterCacheData<FilteredCellVoltagesE>,
+    }
+    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
+    
+    /// "Nice data" for a single chip.
+    pub struct NiceDataChip {
+        inner: IndexByCell<ElectricPotential>,
+    }
+    impl core::ops::Deref for NiceDataChip {
+        type Target = IndexByCell<ElectricPotential>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl TryFrom<Raw> for NiceData {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: Raw) -> Result<Self, Self::Error> {
+            let Some(a) = raw.fca.data() else { return Err(()); };
+            let Some(b) = raw.fcb.data() else { return Err(()); };
+            let Some(c) = raw.fcc.data() else { return Err(()); };
+            let Some(d) = raw.fcd.data() else { return Err(()); };
+            let Some(e) = raw.fce.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        NiceDataChip {
+                            inner: IndexByCell::from_fn(|cell| {
+                                match cell {
+                                    CellId::Cell1 => ElectricPotential::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
+                                    CellId::Cell2 => ElectricPotential::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
+                                    CellId::Cell3 => ElectricPotential::new::<microvolt>(a.get(chip).data().fc3v().as_microvolts() as f32),
+
+                                    CellId::Cell4 => ElectricPotential::new::<microvolt>(b.get(chip).data().fc4v().as_microvolts() as f32),
+                                    CellId::Cell5 => ElectricPotential::new::<microvolt>(b.get(chip).data().fc5v().as_microvolts() as f32),
+                                    CellId::Cell6 => ElectricPotential::new::<microvolt>(b.get(chip).data().fc6v().as_microvolts() as f32),
+
+                                    CellId::Cell7 => ElectricPotential::new::<microvolt>(c.get(chip).data().fc7v().as_microvolts() as f32),
+                                    CellId::Cell8 => ElectricPotential::new::<microvolt>(c.get(chip).data().fc8v().as_microvolts() as f32),
+                                    CellId::Cell9 => ElectricPotential::new::<microvolt>(c.get(chip).data().fc9v().as_microvolts() as f32),
+
+                                    CellId::Cell10 => ElectricPotential::new::<microvolt>(d.get(chip).data().fc10v().as_microvolts() as f32),
+                                    CellId::Cell11 => ElectricPotential::new::<microvolt>(d.get(chip).data().fc11v().as_microvolts() as f32),
+                                    CellId::Cell12 => ElectricPotential::new::<microvolt>(d.get(chip).data().fc12v().as_microvolts() as f32),
+
+                                    CellId::Cell13 => ElectricPotential::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
+                                }
+                            })
+                        }
+                    })
+                }
+            })
+        }
+    }
+
+    impl CacheData {
+        /// Updates caches FilteredCellVoltages A through E with new data.
+        /// 
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_filtered_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            use adbms6830b::chip::commands::snapshot::{snap, unsnap};
+
+            match api.command(snap()).await {
+                Ok(_) => (),
+                Err(err) => {
+                    defmt::error!("Segments: Cache: in `update_filtered_cell_voltages(): call to `api.command(snap())` resulted in an error. Error: {}", err);
+                    return Err(UpdateError::SnapError(err));
+                }
+            }
+
+            let result: Result<(), UpdateError> = async {
+                self.fca.update(api).await?;
+                self.fcb.update(api).await?;
+                self.fcc.update(api).await?;
+                self.fcd.update(api).await?;
+                self.fce.update(api).await?;
+                Ok(())
+            }.await;
+
+            match api.command(unsnap()).await {
+                Ok(_) => (),
+                Err(err) => {
+                    defmt::error!("Segments: Cache: in `update_filtered_cell_voltages(): call to `api.command(unsnap())` resulted in an error. Error: {}", err);
+                    return Err(UpdateError::UnsnapError(err));
+                }
+            }
+
+            result
+        }
+
+        /// Gets the current cached Average Cell Voltages data.
+        pub fn get_filtered_cell_voltages(&self) -> filtered_cell_voltages::Raw {
+            filtered_cell_voltages::Raw {
+                fca: self.fca.data(),
+                fcb: self.fcb.data(),
+                fcc: self.fcc.data(),
+                fcd: self.fcd.data(),
+                fce: self.fce.data(),
             }
         }
     }
