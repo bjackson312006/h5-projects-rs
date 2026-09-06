@@ -16,6 +16,7 @@ pub mod hardfault;
 pub mod can;
 pub mod clocks;
 pub mod units;
+pub mod broadcast;
 
 use assign_resources::assign_resources;
 assign_resources! {

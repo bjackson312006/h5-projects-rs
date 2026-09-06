@@ -6,16 +6,15 @@ use adbms6830b::{chip::registers::{
     results::{RedundantAuxillaryA, RedundantAuxillaryB, RedundantAuxillaryC, RedundantAuxillaryD},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
-use adbms6830b::turnkey::api::Responses;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embedded_hal_async::i2c::NoAcknowledgeSource::Data;
-use super::alias::{SpiError, Service};
+use crate::segments::core::alias::{SpiError, Service, ADBMS6830B_NUM_CHIPS};
 use adbms6830b::line::PecStatus;
 use super::chips::ChipId;
 use core::cell::Cell;
 use super::chips::IndexByChip;
+use super::core::alias;
+
 /// Cache to hold read data.
-pub static CACHE: CacheData<{ super::alias::ADBMS6830B_NUM_CHIPS }> = CacheData::new();
+pub(super) static CACHE: CacheData<{ ADBMS6830B_NUM_CHIPS }> = CacheData::new();
 
 /// Errors that may occur when trying to update a value in the cache.
 #[derive(Clone, Copy, Debug)]
@@ -94,7 +93,7 @@ impl<const N: usize, R: ReadableGroup> RegisterCache<N, R> {
     }
 
     /// Reads the register and updates the cache.
-    pub async fn update(&self, api: &mut super::alias::Api) -> Result<(), UpdateError> {
+    pub async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
         let data: [Reading<R>; N] = {
             let responses = api.read::<R>().await;
 
@@ -175,7 +174,7 @@ pub mod redundant_aux {
     use super::*;
     use crate::units::ElectricPotential;
     use uom::si::electric_potential::microvolt;
-    use crate::segments::alias;
+    use super::alias;
 
     /// Raw Redundant Aux register readings.
     pub struct Raw<const N: usize> {

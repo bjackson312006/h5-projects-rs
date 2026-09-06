@@ -1,3 +1,5 @@
+use super::core::alias;
+
 /// ID for each ADBMS6830 chip.
 #[repr(usize)]
 #[derive(variant_count::VariantCount)]
@@ -109,9 +111,9 @@ pub enum SegmentId {
 /// lookup raw arrays (whuch might require you to convert a ChipId to usize).
 #[derive(Copy, Clone, Debug)]
 pub struct IndexByChip<const N: usize, T> { data: [T; N] }
-pub type Iter<'a, T> = core::iter::Zip<core::array::IntoIter<ChipId, { super::alias::ADBMS6830B_NUM_CHIPS }>, core::slice::Iter<'a, T>>;
-pub type IterMut<'a, T> = core::iter::Zip<core::array::IntoIter<ChipId, { super::alias::ADBMS6830B_NUM_CHIPS }>, core::slice::IterMut<'a, T>>;
-pub type IntoIter<const N: usize, T> = core::iter::Zip<core::array::IntoIter<ChipId, { super::alias::ADBMS6830B_NUM_CHIPS }>, core::array::IntoIter<T, N>>;
+pub type Iter<'a, T> = core::iter::Zip<core::array::IntoIter<ChipId, { alias::ADBMS6830B_NUM_CHIPS }>, core::slice::Iter<'a, T>>;
+pub type IterMut<'a, T> = core::iter::Zip<core::array::IntoIter<ChipId, { alias::ADBMS6830B_NUM_CHIPS }>, core::slice::IterMut<'a, T>>;
+pub type IntoIter<const N: usize, T> = core::iter::Zip<core::array::IntoIter<ChipId, { alias::ADBMS6830B_NUM_CHIPS }>, core::array::IntoIter<T, N>>;
 
 impl<const N: usize, T> IndexByChip<N, T> {
     /// Creates a new `IndexByChip` directly from an array.
@@ -121,7 +123,7 @@ impl<const N: usize, T> IndexByChip<N, T> {
 
     /// Compile-time checker that makes sure N is the same size as the number of chips we have.
     const N_CHECK: () = assert!(
-        N == super::alias::ADBMS6830B_NUM_CHIPS,
+        N == alias::ADBMS6830B_NUM_CHIPS,
         "IndexByChip's N must equal the number of ChipId variants",
     );
 
