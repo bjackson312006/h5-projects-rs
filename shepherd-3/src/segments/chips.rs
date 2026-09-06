@@ -1,5 +1,23 @@
 use super::core::alias;
 
+/// ID for each cell per ADBMS6830B chip. There are 13 cells per chip.
+#[repr(usize)]
+#[derive(variant_count::VariantCount)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(defmt::Format)]
+pub enum CellId {
+    Cell0,
+    Cell1,
+    Cell2,
+    Cell3,
+    Cell4,
+    Cell5,
+    Cell6,
+    Cell7,
+    Cell8,
+    Cell9,
+}
+
 /// ID for each ADBMS6830 chip.
 #[repr(usize)]
 #[derive(variant_count::VariantCount)]

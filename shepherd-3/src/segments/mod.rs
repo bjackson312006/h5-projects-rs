@@ -8,3 +8,5 @@ use embassy_time::{ Timer };
 mod cache;
 mod chips;
 mod core;
+
+pub use core::task::segments_task;
