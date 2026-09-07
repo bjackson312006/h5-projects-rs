@@ -408,6 +408,18 @@ pub mod task {
                 Job::Service => segments.run().await,
 
                 Job::RedundantAux => {
+                    use adbms6830b::chip::commands::adc::Aux2InputSelection;
+
+                    /// Autoconvert timeout in ms.
+                    const TIMEOUT_MS: u64 = 100;
+
+                    // trigger the conversion and poll it until done
+                    if let Err(err) = segments.service.api().adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await {
+                        defmt::error!("Segments: Inside scheduled RedundantAux job: call to `adax2_autoconvert()` resulted in an error. Error: {}", err);
+                        return;
+                    }
+
+                    // actually read them
                     if let Err(err) = cache::CACHE.update_redundant_aux(segments.service.api()).await {
                         defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
                         return;

@@ -614,21 +614,11 @@ pub mod redundant_aux {
     impl CacheData {
         /// Updates caches RedundantAuxillaryA through D with new data.
         /// 
+        /// This doesn't run the `autoconvert` function!! The caller should do that. Otherwise this update will basically do nothing
+        /// 
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_redundant_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::adc::Aux2InputSelection;
-
-            /// Autoconvert timeout in ms.
-            const TIMEOUT_MS: u64 = 100;
-
-            match api.adax2_autoconvert(Aux2InputSelection::All, TIMEOUT_MS).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_redundant_aux(): call to `api.adax2_autoconvert` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::PollError(err));
-                }
-            }
 
             self.raxa.update(api).await?;
             self.raxb.update(api).await?;
