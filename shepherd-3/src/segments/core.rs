@@ -376,20 +376,8 @@ pub mod task {
         const REDUNDANT_AUX_MAX_WAITERS: usize = 10;
         pub static REDUNDANT_AUX_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, REDUNDANT_AUX_MAX_WAITERS> = Broadcast::new();
 
-        const CELL_VOLTAGES_MAX_WAITERS: usize = 10;
-        pub static CELL_VOLTAGES_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, CELL_VOLTAGES_MAX_WAITERS> = Broadcast::new();
-
-        const AVERAGE_CELL_VOLTAGES_MAX_WAITERS: usize = 10;
-        pub static AVERAGE_CELL_VOLTAGES_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, AVERAGE_CELL_VOLTAGES_MAX_WAITERS> = Broadcast::new();
-
-        const FILTERED_CELL_VOLTAGES_MAX_WAITERS: usize = 10;
-        pub static FILTERED_CELL_VOLTAGES_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, FILTERED_CELL_VOLTAGES_MAX_WAITERS> = Broadcast::new();
-
-        const S_VOLTAGES_MAX_WAITERS: usize = 10;
-        pub static S_VOLTAGES_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, S_VOLTAGES_MAX_WAITERS> = Broadcast::new();
-
-        const STATUS_C_MAX_WAITERS: usize = 10;
-        pub static STATUS_C_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, STATUS_C_MAX_WAITERS> = Broadcast::new();
+        const SNAP_REGISTERS_MAX_WAITERS: usize = 10;
+        pub static SNAP_REGISTERS_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, SNAP_REGISTERS_MAX_WAITERS> = Broadcast::new();
     }
 
     /// A unit of work the segments task runs on a schedule.
@@ -400,16 +388,10 @@ pub mod task {
         Service,
         /// Refreshes the Redundant Aux portion of the Cache.
         RedundantAux,
-        /// Refreshes the Cell Voltages portion of the Cache.
-        CellVoltages,
-        /// Refreshes the Average Cell Voltages portion of the Cache.
-        AverageCellVoltages,
-        /// Refreshes the Filtered Cell Voltages portion of the Cache.
-        FilteredCellVoltages,
-        /// Refreshes the S Voltages portion of the Cache.
-        SVoltages,
-        /// Refreshes the StatusC portion of the Cache.
-        StatusC,
+        /// Job that refreshes registers that require a SNAP to be read. These are in a single job so the data can be compared across these registers coherently.
+        /// 
+        /// This includes the following registers: CellVoltages, AverageCellVoltages, FilteredCellVoltages, SVotlages, StatusC, StatusD.
+        SnapRegisters,
     }
 
     impl Job {
@@ -426,44 +408,57 @@ pub mod task {
                     signals::REDUNDANT_AUX_FRESH_DATA_SIGNAL.signal();
                 }
 
-                Job::CellVoltages => {
+                Job::SnapRegisters => {
+                    use adbms6830b::chip::commands;
+
+                    // when this job returns early, it doesn't unsnap the registers before doing so. this is fine because this job contains all the registers that are affected by SNAP. so other jobs
+                    // can still run as normal.
+
+                    // Snap the registers before doing anything!
+                    if let Err(err) = segments.service.api().command(commands::snapshot::snap()).await {
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to send the SNAP command. Error: {}", err);
+                        return;
+                    }
+
+                    // Update cell voltages.
                     if let Err(err) = cache::CACHE.update_cell_voltages(segments.service.api()).await {
-                        defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_cell_voltages()`. Error: {}", err);
                         return;
                     }
-                    signals::CELL_VOLTAGES_FRESH_DATA_SIGNAL.signal();
-                }
 
-                Job::AverageCellVoltages => {
+                    // Update average cell voltages.
                     if let Err(err) = cache::CACHE.update_average_cell_voltages(segments.service.api()).await {
-                        defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_average_cell_voltages()`. Error: {}", err);
                         return;
                     }
-                    signals::AVERAGE_CELL_VOLTAGES_FRESH_DATA_SIGNAL.signal();
-                }
 
-                Job::FilteredCellVoltages => {
+                    // Update filtered cell voltages.
                     if let Err(err) = cache::CACHE.update_filtered_cell_voltages(segments.service.api()).await {
-                        defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_filtered_cell_voltages()`. Error: {}", err);
                         return;
                     }
-                    signals::FILTERED_CELL_VOLTAGES_FRESH_DATA_SIGNAL.signal();
-                }
 
-                Job::SVoltages => {
+                    // Update S voltages.
                     if let Err(err) = cache::CACHE.update_s_voltages(segments.service.api()).await {
-                        defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_s_voltages()`. Error: {}", err);
                         return;
                     }
-                    signals::S_VOLTAGES_FRESH_DATA_SIGNAL.signal();
-                }
 
-                Job::StatusC => {
+                    // Update StatusC.
                     if let Err(err) = cache::CACHE.update_status_c(segments.service.api()).await {
-                        defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_status_c()`. Error: {}", err);
                         return;
                     }
-                    signals::STATUS_C_FRESH_DATA_SIGNAL.signal();
+
+                    // u_TODO - update status D
+
+                    // Unsnap.
+                    if let Err(err) = segments.service.api().command(commands::snapshot::unsnap()).await {
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to send the UNSNAP command. Error: {}", err);
+                        return;
+                    }
+
+                    signals::SNAP_REGISTERS_FRESH_DATA_SIGNAL.signal();
                 }
             }
         }
@@ -501,27 +496,15 @@ pub mod task {
         const SEGMENTS_SERVICE_FREQUENCY_MS: u64 = 300;
         /// Frequency (in ms) at which the segments task should update the Redundant Aux cache.
         const SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS: u64 = 300;
-        /// Frequency (in ms) at which the segments task should update the Cell Voltages cache.
-        const SEGMENTS_CELL_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
-        /// Frequency (in ms) at which the segments task should update the Average Cell Voltages cache.
-        const SEGMENTS_AVERAGE_CELL_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
-        /// Frequency (in ms) at which the segments task should update the Filtered Cell Voltages cache.
-        const SEGMENTS_FILTERED_CELL_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
-        /// Frequency (in ms) at which the segments task should update the S Voltages cache.
-        const SEGMENTS_S_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
-        /// Frequency (in ms) at which the segments task should update the StatusC cache.
-        const SEGMENTS_STATUS_C_UPDATE_FREQUENCY_MS: u64 = 100;
+        /// Frequency (in ms) at which the segments task should update the cache for the SNAP registers.
+        const SEGMENTS_SNAP_REGISTERS_UPDATE_FREQUENCY_MS: u64 = 100;
 
         let mut segments = Segments::new(r_linea, r_lineb);
 
         // List of everything this task does. (to add a job, add an entry here and a match case in Job::run())
         let mut schedule = [
             Scheduled::every(SEGMENTS_SERVICE_FREQUENCY_MS, Job::Service),
-            Scheduled::every(SEGMENTS_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::CellVoltages),
-            Scheduled::every(SEGMENTS_FILTERED_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::FilteredCellVoltages),
-            Scheduled::every(SEGMENTS_S_VOLTAGES_UPDATE_FREQUENCY_MS, Job::SVoltages),
-            Scheduled::every(SEGMENTS_STATUS_C_UPDATE_FREQUENCY_MS, Job::StatusC),
-            Scheduled::every(SEGMENTS_AVERAGE_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::AverageCellVoltages),
+            Scheduled::every(SEGMENTS_SNAP_REGISTERS_UPDATE_FREQUENCY_MS, Job::SnapRegisters),
             Scheduled::every(SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS, Job::RedundantAux),
         ];
 

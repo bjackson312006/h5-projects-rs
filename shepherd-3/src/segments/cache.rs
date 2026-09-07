@@ -31,10 +31,6 @@ pub(super) static CACHE: CacheData = CacheData::new();
 pub enum UpdateError {
     /// Error occurred while trying to clear flags after reading them in an update call.
     ClearFlagsError(Error<SpiError>),
-    /// Error occurred while trying to send the UNSNAP command.
-    UnsnapError(Error<SpiError>),
-    /// Error occurred while trying to send the SNAP command.
-    SnapError(Error<SpiError>),
     /// Error occurred while polling a conversion completion (possibly via a ...autoconvert() function).
     PollError(Error<SpiError>),
     /// Line A failed during update. Inner contains the SPI error.
@@ -727,15 +723,6 @@ pub mod cell_voltages {
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::snapshot::{snap, unsnap};
-
-            match api.command(snap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_cell_voltages(): call to `api.command(snap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::SnapError(err));
-                }
-            }
 
             let result: Result<(), UpdateError> = async {
                 self.cva.update(api).await?;
@@ -745,14 +732,6 @@ pub mod cell_voltages {
                 self.cve.update(api).await?;
                 Ok(())
             }.await;
-
-            match api.command(unsnap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_cell_voltages(): call to `api.command(unsnap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::UnsnapError(err));
-                }
-            }
 
             result
         }
@@ -866,15 +845,6 @@ pub mod average_cell_voltages {
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_average_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::snapshot::{snap, unsnap};
-
-            match api.command(snap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_average_cell_voltages(): call to `api.command(snap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::SnapError(err));
-                }
-            }
 
             let result: Result<(), UpdateError> = async {
                 self.aca.update(api).await?;
@@ -884,14 +854,6 @@ pub mod average_cell_voltages {
                 self.ace.update(api).await?;
                 Ok(())
             }.await;
-
-            match api.command(unsnap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_average_cell_voltages(): call to `api.command(unsnap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::UnsnapError(err));
-                }
-            }
 
             result
         }
@@ -1005,15 +967,6 @@ pub mod filtered_cell_voltages {
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_filtered_cell_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::snapshot::{snap, unsnap};
-
-            match api.command(snap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_filtered_cell_voltages(): call to `api.command(snap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::SnapError(err));
-                }
-            }
 
             let result: Result<(), UpdateError> = async {
                 self.fca.update(api).await?;
@@ -1023,14 +976,6 @@ pub mod filtered_cell_voltages {
                 self.fce.update(api).await?;
                 Ok(())
             }.await;
-
-            match api.command(unsnap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_filtered_cell_voltages(): call to `api.command(unsnap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::UnsnapError(err));
-                }
-            }
 
             result
         }
@@ -1144,15 +1089,6 @@ pub mod s_voltages {
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_s_voltages(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::snapshot::{snap, unsnap};
-
-            match api.command(snap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_s_voltages(): call to `api.command(snap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::SnapError(err));
-                }
-            }
 
             let result: Result<(), UpdateError> = async {
                 self.sca.update(api).await?;
@@ -1162,14 +1098,6 @@ pub mod s_voltages {
                 self.sce.update(api).await?;
                 Ok(())
             }.await;
-
-            match api.command(unsnap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_s_voltages(): call to `api.command(unsnap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::UnsnapError(err));
-                }
-            }
 
             result
         }
@@ -1370,29 +1298,11 @@ pub mod status_c {
         /// ### Returns
         /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
         pub(in crate::segments) async fn update_status_c(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-            use adbms6830b::chip::commands::snapshot::{snap, unsnap};
-            use adbms6830b::chip::registers::clear::{ClearFlags, types::ClearAction};
-
-            match api.command(snap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_status_c(): call to `api.command(snap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::SnapError(err));
-                }
-            }
 
             let result: Result<(), UpdateError> = async {
                 self.statc.update(api).await?;
                 Ok(())
             }.await;
-
-            match api.command(unsnap()).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_status_c(): call to `api.command(unsnap())` resulted in an error. Error: {}", err);
-                    return Err(UpdateError::UnsnapError(err));
-                }
-            }
 
             if result.is_ok() {
                 let statc_data = self.statc.data();
@@ -1418,5 +1328,3 @@ pub mod status_c {
         }
     }
 }
-
-// u_TODO - IMPORTANT: probably should move the SNAP calls outside of these individual `update...` functions and make it the job of the Jobs in the segments task. There should probably be a single Job for all SNAP-able register groups that snaps once, does all of the reads, and then unsnaps. because rn each individual job does its own snap which works fine within each job but data from across jobs won't be 100% coherent and it probably needs to be
