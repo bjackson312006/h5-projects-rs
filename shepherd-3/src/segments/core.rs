@@ -486,19 +486,19 @@ pub mod task {
 
                     // Update AuxillaryA through D.
                     if let Err(err) = cache::CACHE.update_aux(segments.service.api()).await {
-                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_aux()`. Error: {}", err);
+                        defmt::error!("Segments: Inside scheduled AdaxRegisters job: Failed to call `update_aux()`. Error: {}", err);
                         return;
                     }
 
                     // Update StatusA.
                     if let Err(err) = cache::CACHE.update_status_a(segments.service.api()).await {
-                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_status_a()`. Error: {}", err);
+                        defmt::error!("Segments: Inside scheduled AdaxRegisters job: Failed to call `update_status_a()`. Error: {}", err);
                         return;
                     }
 
                     // Update StatusB.
                     if let Err(err) = cache::CACHE.update_status_b(segments.service.api()).await {
-                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_status_b()`. Error: {}", err);
+                        defmt::error!("Segments: Inside scheduled AdaxRegisters job: Failed to call `update_status_b()`. Error: {}", err);
                         return;
                     }
 

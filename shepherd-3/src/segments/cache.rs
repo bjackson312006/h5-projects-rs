@@ -1569,6 +1569,10 @@ pub mod aux {
         pub gpio9_votlage: ElectricPotential,
         /// GPIO10 Voltage result.
         pub gpio10_votlage: ElectricPotential,
+        /// VMV voltage result.
+        pub vmv: ElectricPotential,
+        /// VPV voltage result.
+        pub vpv: ElectricPotential,
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
@@ -1611,6 +1615,8 @@ pub mod aux {
                             gpio9_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
 
                             gpio10_votlage: ElectricPotential::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
+                            vmv: ElectricPotential::new::<microvolt>(d.get(chip).data().vmv().as_microvolts() as f32),
+                            vpv: ElectricPotential::new::<microvolt>(d.get(chip).data().vpv().as_microvolts() as f32),
                         }
                     })
                 }
