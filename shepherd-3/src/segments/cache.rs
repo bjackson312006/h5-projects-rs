@@ -8,6 +8,7 @@ use adbms6830b::{chip::registers::{
     results::{AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE},
     results::{FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE},
     results::{SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE},
+    status::{StatusC,},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
 use crate::segments::core::alias::{SpiError, Service};
@@ -25,6 +26,8 @@ pub(super) static CACHE: CacheData = CacheData::new();
 #[derive(Clone, Copy, Debug)]
 #[derive(defmt::Format)]
 pub enum UpdateError {
+    /// Error occurred while trying to clear flags after reading them in an update call.
+    ClearFlagsError(Error<SpiError>),
     /// Error occurred while trying to send the UNSNAP command.
     UnsnapError(Error<SpiError>),
     /// Error occurred while trying to send the SNAP command.
@@ -64,6 +67,10 @@ pub struct RegisterCacheData<R: ReadableGroup> {
     /// If no read has been made yet, this is None.
     last_sucessful_read: Option<embassy_time::Instant>,
 }
+// ^^ u_TODO ideas for maybe cool extra stuff we could add to RegisterCacheData: 
+// - a `read_duration: Option<embassy_time::Duration>` that stores how long the most recent read took. maybe also a `max_read_duration`, `min_read_duration`, and `avg_read_duration` field? would actually be helpful for optimizing our timing a bit. or just cool to look at
+// - idk
+
 impl<R: ReadableGroup> RegisterCacheData<R> {
     /// Last instant this register cache was successfully read over SPI and updated.
     /// If no read has been made yet, this is None.
@@ -194,6 +201,8 @@ pub struct CacheData {
     scc: RegisterCache<SVoltagesC>,
     scd: RegisterCache<SVoltagesD>,
     sce: RegisterCache<SVoltagesE>,
+
+    statc: RegisterCache<StatusC>,
 }
 impl CacheData {
     pub(super) const fn new() -> Self {
@@ -226,6 +235,8 @@ impl CacheData {
             scc: RegisterCache::new(),
             scd: RegisterCache::new(),
             sce: RegisterCache::new(),
+
+             statc: RegisterCache::new(),
         }
     }
 }
@@ -243,6 +254,10 @@ pub mod redundant_aux {
         pub raxb: RegisterCacheData<RedundantAuxillaryB>,
         pub raxc: RegisterCacheData<RedundantAuxillaryC>,
         pub raxd: RegisterCacheData<RedundantAuxillaryD>,
+    }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
     
@@ -282,12 +297,12 @@ pub mod redundant_aux {
             &self.inner
         }
     }
-    impl TryFrom<Raw> for NiceData {
+    impl TryFrom<&Raw> for NiceData {
         type Error = ();
 
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
-        fn try_from(raw: Raw) -> Result<Self, Self::Error> {
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
             let Some(a) = raw.raxa.data() else { return Err(()); };
             let Some(b) = raw.raxb.data() else { return Err(()); };
             let Some(c) = raw.raxc.data() else { return Err(()); };
@@ -372,6 +387,10 @@ pub mod cell_voltages {
         pub cvd: RegisterCacheData<CellVoltagesD>,
         pub cve: RegisterCacheData<CellVoltagesE>,
     }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
     
     /// "Nice data" for a single chip.
@@ -398,12 +417,12 @@ pub mod cell_voltages {
             &self.inner
         }
     }
-    impl TryFrom<Raw> for NiceData {
+    impl TryFrom<&Raw> for NiceData {
         type Error = ();
 
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
-        fn try_from(raw: Raw) -> Result<Self, Self::Error> {
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
             let Some(a) = raw.cva.data() else { return Err(()); };
             let Some(b) = raw.cvb.data() else { return Err(()); };
             let Some(c) = raw.cvc.data() else { return Err(()); };
@@ -507,6 +526,10 @@ pub mod average_cell_voltages {
         pub acd: RegisterCacheData<AverageCellVoltagesD>,
         pub ace: RegisterCacheData<AverageCellVoltagesE>,
     }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
     
     /// "Nice data" for a single chip.
@@ -533,12 +556,12 @@ pub mod average_cell_voltages {
             &self.inner
         }
     }
-    impl TryFrom<Raw> for NiceData {
+    impl TryFrom<&Raw> for NiceData {
         type Error = ();
 
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
-        fn try_from(raw: Raw) -> Result<Self, Self::Error> {
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
             let Some(a) = raw.aca.data() else { return Err(()); };
             let Some(b) = raw.acb.data() else { return Err(()); };
             let Some(c) = raw.acc.data() else { return Err(()); };
@@ -642,6 +665,10 @@ pub mod filtered_cell_voltages {
         pub fcd: RegisterCacheData<FilteredCellVoltagesD>,
         pub fce: RegisterCacheData<FilteredCellVoltagesE>,
     }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
     
     /// "Nice data" for a single chip.
@@ -668,12 +695,12 @@ pub mod filtered_cell_voltages {
             &self.inner
         }
     }
-    impl TryFrom<Raw> for NiceData {
+    impl TryFrom<&Raw> for NiceData {
         type Error = ();
 
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
-        fn try_from(raw: Raw) -> Result<Self, Self::Error> {
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
             let Some(a) = raw.fca.data() else { return Err(()); };
             let Some(b) = raw.fcb.data() else { return Err(()); };
             let Some(c) = raw.fcc.data() else { return Err(()); };
@@ -748,7 +775,7 @@ pub mod filtered_cell_voltages {
             result
         }
 
-        /// Gets the current cached Average Cell Voltages data.
+        /// Gets the current cached Filtered Cell Voltages data.
         pub fn get_filtered_cell_voltages(&self) -> filtered_cell_voltages::Raw {
             filtered_cell_voltages::Raw {
                 fca: self.fca.data(),
@@ -769,13 +796,17 @@ pub mod s_voltages {
     use super::alias;
     use crate::segments::chips::cells::{IndexByCell, CellId};
 
-    /// Raw FilteredCellVoltages register readings.
+    /// Raw SVoltages register readings.
     pub struct Raw {
         pub sca: RegisterCacheData<SVoltagesA>,
         pub scb: RegisterCacheData<SVoltagesB>,
         pub scc: RegisterCacheData<SVoltagesC>,
         pub scd: RegisterCacheData<SVoltagesD>,
         pub sce: RegisterCacheData<SVoltagesE>,
+    }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
     
@@ -803,12 +834,12 @@ pub mod s_voltages {
             &self.inner
         }
     }
-    impl TryFrom<Raw> for NiceData {
+    impl TryFrom<&Raw> for NiceData {
         type Error = ();
 
         /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
         /// in this `NiceData` haven't been read yet, this returns `Err(())`.
-        fn try_from(raw: Raw) -> Result<Self, Self::Error> {
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
             let Some(a) = raw.sca.data() else { return Err(()); };
             let Some(b) = raw.scb.data() else { return Err(()); };
             let Some(c) = raw.scc.data() else { return Err(()); };
@@ -883,7 +914,7 @@ pub mod s_voltages {
             result
         }
 
-        /// Gets the current cached Average Cell Voltages data.
+        /// Gets the current cached S Voltages data.
         pub fn get_s_voltages(&self) -> s_voltages::Raw {
             s_voltages::Raw {
                 sca: self.sca.data(),
@@ -895,3 +926,166 @@ pub mod s_voltages {
         }
     }
 }
+
+/// Status C register group.
+pub mod status_c {
+    use super::*;
+    use super::alias;
+    use crate::segments::chips::cells::{IndexByCell, CellId};
+    use adbms6830b::chip::registers::status::types::c::{ComparisonFault, ConversionsCount, 
+        STrimMultipleError, STrimError, CTrimMultipleError, CTrimError, DigitalRailOvervoltage, DigitalRailUndervoltage, 
+        AnalogRailUndervoltage, AnalogRailOvervoltage, OscillatorCheck, TestModeDetection, ThermalShutdownStatus, SleepModeDetection, 
+        SpiFault, ComparisonActive, SupplyRailDelta, SupplyRailDeltaLatent};
+
+    /// Raw StatusC register reading.
+    pub struct Raw {
+        pub statc: RegisterCacheData<StatusC>,
+    }
+    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
+    
+    /// "Nice data" for a single chip.
+    /// 
+    /// This data isn't even that "nice", since it is mostly just the raw StatusC data but with nicer ComparisonFault formatting (can be indexed by cells) and nicer
+    /// conversions count formatting. Everything else is basically the same though.
+    pub struct NiceDataChip {
+        pub cell_channel_comparison_faults: IndexByCell<ComparisonFault>,
+        pub conversions_count: ConversionsCount,
+        pub s_trim_multiple_error: STrimMultipleError,
+        pub s_trim_error: STrimError,
+        pub c_trim_multiple_error: CTrimMultipleError,
+        pub c_trim_error: CTrimError,
+        pub digital_rail_undervoltage: DigitalRailUndervoltage,
+        pub digital_rail_overvoltage: DigitalRailOvervoltage,
+        pub analog_rail_undervoltage: AnalogRailUndervoltage,
+        pub analog_rail_overvoltage: AnalogRailOvervoltage,
+        pub oscillator_check: OscillatorCheck,
+        pub test_mode_detection: TestModeDetection,
+        pub thermal_shutdown_status: ThermalShutdownStatus,
+        pub sleep_mode_detection: SleepModeDetection,
+        pub spi_fault: SpiFault,
+        pub comparison_active: ComparisonActive,
+        pub supply_rail_delta: SupplyRailDelta,
+        pub supply_rail_delta_latent: SupplyRailDeltaLatent,
+    }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl TryFrom<&Raw> for NiceData {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
+            let Some(statc) = raw.statc.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        let chip_statc = statc.get(chip).data();
+                        NiceDataChip {
+                            cell_channel_comparison_faults: IndexByCell::from_fn(|cell| {
+                                match cell {
+                                    CellId::Cell1 => chip_statc.cs1flt(),
+                                    CellId::Cell2 => chip_statc.cs2flt(),
+                                    CellId::Cell3 => chip_statc.cs3flt(),
+                                    CellId::Cell4 => chip_statc.cs4flt(),
+                                    CellId::Cell5 => chip_statc.cs5flt(),
+                                    CellId::Cell6 => chip_statc.cs6flt(),
+                                    CellId::Cell7 => chip_statc.cs7flt(),
+                                    CellId::Cell8 => chip_statc.cs8flt(),
+                                    CellId::Cell9 => chip_statc.cs9flt(),
+                                    CellId::Cell10 => chip_statc.cs10flt(),
+                                    CellId::Cell11 => chip_statc.cs11flt(),
+                                    CellId::Cell12 => chip_statc.cs12flt(),
+                                    CellId::Cell13 => chip_statc.cs13flt(),
+                                }
+                            }),
+                            conversions_count: ConversionsCount::new(chip_statc.ct_lower(), chip_statc.ct_upper(), chip_statc.cts()),
+                            s_trim_multiple_error: chip_statc.smed(),
+                            s_trim_error: chip_statc.sed(),
+                            c_trim_multiple_error: chip_statc.cmed(),
+                            c_trim_error: chip_statc.ced(),
+                            digital_rail_overvoltage: chip_statc.vd_ov(),
+                            digital_rail_undervoltage: chip_statc.vd_uv(),
+                            analog_rail_overvoltage: chip_statc.va_ov(),
+                            analog_rail_undervoltage: chip_statc.va_uv(),
+                            oscillator_check: chip_statc.oscchk(),
+                            test_mode_detection: chip_statc.tmodchk(),
+                            thermal_shutdown_status: chip_statc.thsd(),
+                            sleep_mode_detection: chip_statc.sleep(),
+                            spi_fault: chip_statc.spiflt(),
+                            comparison_active: chip_statc.comp(),
+                            supply_rail_delta: chip_statc.vde(),
+                            supply_rail_delta_latent: chip_statc.vdel(),
+                        }
+                    })
+                }
+            })
+        }
+    }
+
+    impl CacheData {
+        /// Updates StatusC cache.
+        /// 
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_status_c(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+            use adbms6830b::chip::commands::snapshot::{snap, unsnap};
+            use adbms6830b::chip::registers::clear::{ClearFlags, types::ClearAction};
+
+            match api.command(snap()).await {
+                Ok(_) => (),
+                Err(err) => {
+                    defmt::error!("Segments: Cache: in `update_status_c(): call to `api.command(snap())` resulted in an error. Error: {}", err);
+                    return Err(UpdateError::SnapError(err));
+                }
+            }
+
+            let result: Result<(), UpdateError> = async {
+                self.statc.update(api).await?;
+                Ok(())
+            }.await;
+
+            match api.command(unsnap()).await {
+                Ok(_) => (),
+                Err(err) => {
+                    defmt::error!("Segments: Cache: in `update_status_c(): call to `api.command(unsnap())` resulted in an error. Error: {}", err);
+                    return Err(UpdateError::UnsnapError(err));
+                }
+            }
+
+            match api.write(&[ClearFlags::clear_all(); ADBMS6830B_NUM_CHIPS]).await {
+                Ok(_) => (),
+                Err(err) => {
+                    defmt::error!("Segments: Cache: in `update_status_c(): call to `api.write(...)` for ClearFlags resulted in an error. Error: {}", err);
+                    return Err(UpdateError::ClearFlagsError(err));
+                }
+            }
+
+            result
+        }
+
+        /// Gets the current cached StatusC data.
+        pub fn get_status_c(&self) -> status_c::Raw {
+            status_c::Raw {
+                statc: self.statc.data(),
+            }
+        }
+    }
+}
+
+// u_TODO - IMPORTANT: probably should move the SNAP calls outside of these individual `update...` functions and make it the job of the Jobs in the segments task. There should probably be a single Job for all SNAP-able register groups that snaps once, does all of the reads, and then unsnaps. because rn each individual job does its own snap which works fine within each job but data from across jobs won't be 100% coherent and it probably needs to be

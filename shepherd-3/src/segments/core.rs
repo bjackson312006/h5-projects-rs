@@ -387,6 +387,9 @@ pub mod task {
 
         const S_VOLTAGES_MAX_WAITERS: usize = 10;
         pub static S_VOLTAGES_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, S_VOLTAGES_MAX_WAITERS> = Broadcast::new();
+
+        const STATUS_C_MAX_WAITERS: usize = 10;
+        pub static STATUS_C_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, STATUS_C_MAX_WAITERS> = Broadcast::new();
     }
 
     /// A unit of work the segments task runs on a schedule.
@@ -405,6 +408,8 @@ pub mod task {
         FilteredCellVoltages,
         /// Refreshes the S Voltages portion of the Cache.
         SVoltages,
+        /// Refreshes the StatusC portion of the Cache.
+        StatusC,
     }
 
     impl Job {
@@ -452,6 +457,14 @@ pub mod task {
                     }
                     signals::S_VOLTAGES_FRESH_DATA_SIGNAL.signal();
                 }
+
+                Job::StatusC => {
+                    if let Err(err) = cache::CACHE.update_status_c(segments.service.api()).await {
+                        defmt::error!("Segments: scheduled `{}` cache update failed. Error: {}", self, err);
+                        return;
+                    }
+                    signals::STATUS_C_FRESH_DATA_SIGNAL.signal();
+                }
             }
         }
     }
@@ -496,6 +509,8 @@ pub mod task {
         const SEGMENTS_FILTERED_CELL_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
         /// Frequency (in ms) at which the segments task should update the S Voltages cache.
         const SEGMENTS_S_VOLTAGES_UPDATE_FREQUENCY_MS: u64 = 100;
+        /// Frequency (in ms) at which the segments task should update the StatusC cache.
+        const SEGMENTS_STATUS_C_UPDATE_FREQUENCY_MS: u64 = 100;
 
         let mut segments = Segments::new(r_linea, r_lineb);
 
@@ -505,6 +520,7 @@ pub mod task {
             Scheduled::every(SEGMENTS_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::CellVoltages),
             Scheduled::every(SEGMENTS_FILTERED_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::FilteredCellVoltages),
             Scheduled::every(SEGMENTS_S_VOLTAGES_UPDATE_FREQUENCY_MS, Job::SVoltages),
+            Scheduled::every(SEGMENTS_STATUS_C_UPDATE_FREQUENCY_MS, Job::StatusC),
             Scheduled::every(SEGMENTS_AVERAGE_CELL_VOLTAGES_UPDATE_FREQUENCY_MS, Job::AverageCellVoltages),
             Scheduled::every(SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS, Job::RedundantAux),
         ];
