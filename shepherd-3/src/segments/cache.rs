@@ -179,46 +179,139 @@ pub mod fault_counts {
     use crate::segments::chips::cells::{IndexByCell, CellId};
     use super::{CacheData, IndexByChip};
 
-    /// Comparison fault flags from StatusC.
-    #[derive(Copy, Clone, Debug, defmt::Format)]
-    pub struct ComparisonFaultFlags {
-        pub cs1flt: u32,
-        pub cs2flt: u32,
-        pub cs3flt: u32,
-        pub cs4flt: u32,
-        pub cs5flt: u32,
-        pub cs6flt: u32,
-        pub cs7flt: u32,
-        pub cs8flt: u32,
-        pub cs9flt: u32,
-        pub cs10flt: u32,
-        pub cs11flt: u32,
-        pub cs12flt: u32,
-        pub cs13flt: u32,
-        pub cs14flt: u32,
-        pub cs15flt: u32,
-        pub cs16flt: u32,
+    /// Undervoltage/overvoltage flags from StatusD.
+    pub mod undervotlage_overvoltage {
+        use super::*;
+
+        /// Undervoltage/overvoltage flags from StatusD.
+        #[derive(Copy, Clone, Debug, defmt::Format)]
+        pub struct UndervoltageOvervoltageFlags {
+            pub c1uv: u32,
+            pub c1ov: u32,
+
+            pub c2uv: u32,
+            pub c2ov: u32,
+
+            pub c3uv: u32,
+            pub c3ov: u32,
+
+            pub c4uv: u32,
+            pub c4ov: u32,
+
+            pub c5uv: u32,
+            pub c5ov: u32,
+
+            pub c6uv: u32,
+            pub c6ov: u32,
+
+            pub c7uv: u32,
+            pub c7ov: u32,
+
+            pub c8uv: u32,
+            pub c8ov: u32,
+
+            pub c9uv: u32,
+            pub c9ov: u32,
+
+            pub c10uv: u32,
+            pub c10ov: u32,
+
+            pub c11uv: u32,
+            pub c11ov: u32,
+
+            pub c12uv: u32,
+            pub c12ov: u32,
+
+            pub c13uv: u32,
+            pub c13ov: u32,
+
+            pub c14uv: u32,
+            pub c14ov: u32,
+
+            pub c15uv: u32,
+            pub c15ov: u32,
+
+            pub c16uv: u32,
+            pub c16ov: u32,
+        }
+
+        /// Undervoltage/overvoltage flag counts for a single cell.
+        pub struct CellFlagCounts {
+            /// How many times this cell's undervoltage flag has been read in as set.
+            pub uv: u32,
+            /// How many times this cell's overvoltage flag has been read in as set.
+            pub ov: u32,
+        }
+
+        impl UndervoltageOvervoltageFlags {
+            /// Lets you index the overvoltage/undervoltage flags by cell. This throws away c14uv/ov through c16uv/ov since we only have 13 cells.
+            pub fn idx_by_cell(&self) -> IndexByCell<CellFlagCounts> {
+                IndexByCell::from_fn(|cell| {
+                    match cell {
+                        CellId::Cell1 => CellFlagCounts {uv: self.c1uv, ov: self.c1ov },
+                        CellId::Cell2 => CellFlagCounts {uv: self.c2uv, ov: self.c2ov },
+                        CellId::Cell3 => CellFlagCounts {uv: self.c3uv, ov: self.c3ov },
+                        CellId::Cell4 => CellFlagCounts {uv: self.c4uv, ov: self.c4ov },
+                        CellId::Cell5 => CellFlagCounts {uv: self.c5uv, ov: self.c5ov },
+                        CellId::Cell6 => CellFlagCounts {uv: self.c6uv, ov: self.c6ov },
+                        CellId::Cell7 => CellFlagCounts {uv: self.c7uv, ov: self.c7ov },
+                        CellId::Cell8 => CellFlagCounts {uv: self.c8uv, ov: self.c8ov },
+                        CellId::Cell9 => CellFlagCounts {uv: self.c9uv, ov: self.c9ov },
+                        CellId::Cell10 => CellFlagCounts {uv: self.c10uv, ov: self.c10ov },
+                        CellId::Cell11 => CellFlagCounts {uv: self.c11uv, ov: self.c11ov },
+                        CellId::Cell12 => CellFlagCounts {uv: self.c12uv, ov: self.c12ov },
+                        CellId::Cell13 => CellFlagCounts {uv: self.c13uv, ov: self.c13ov },
+                    }
+                })
+            }
+        }
     }
-    impl ComparisonFaultFlags {
-        /// Lets you index the comparison fault flags by cell. This throws away cs14flt through cs16flt since we only have 13 cells.
-        pub fn idx_by_cell(&self) -> IndexByCell<u32> {
-            IndexByCell::from_fn(|cell| {
-                match cell {
-                    CellId::Cell1 => self.cs1flt,
-                    CellId::Cell2 => self.cs2flt,
-                    CellId::Cell3 => self.cs3flt,
-                    CellId::Cell4 => self.cs4flt,
-                    CellId::Cell5 => self.cs5flt,
-                    CellId::Cell6 => self.cs6flt,
-                    CellId::Cell7 => self.cs7flt,
-                    CellId::Cell8 => self.cs8flt,
-                    CellId::Cell9 => self.cs9flt,
-                    CellId::Cell10 => self.cs10flt,
-                    CellId::Cell11 => self.cs11flt,
-                    CellId::Cell12 => self.cs12flt,
-                    CellId::Cell13 => self.cs13flt,
-                }
-            })
+
+    /// Comparison fault flags from StatusC.
+    pub mod comparison_faults {
+        use super::*;
+
+        /// Comparison fault flags from StatusC.
+        #[derive(Copy, Clone, Debug, defmt::Format)]
+        pub struct ComparisonFaultFlags {
+            pub cs1flt: u32,
+            pub cs2flt: u32,
+            pub cs3flt: u32,
+            pub cs4flt: u32,
+            pub cs5flt: u32,
+            pub cs6flt: u32,
+            pub cs7flt: u32,
+            pub cs8flt: u32,
+            pub cs9flt: u32,
+            pub cs10flt: u32,
+            pub cs11flt: u32,
+            pub cs12flt: u32,
+            pub cs13flt: u32,
+            pub cs14flt: u32,
+            pub cs15flt: u32,
+            pub cs16flt: u32,
+        }
+        impl ComparisonFaultFlags {
+            /// Lets you index the comparison fault flags by cell. This throws away cs14flt through cs16flt since we only have 13 cells.
+            pub fn idx_by_cell(&self) -> IndexByCell<u32> {
+                IndexByCell::from_fn(|cell| {
+                    match cell {
+                        CellId::Cell1 => self.cs1flt,
+                        CellId::Cell2 => self.cs2flt,
+                        CellId::Cell3 => self.cs3flt,
+                        CellId::Cell4 => self.cs4flt,
+                        CellId::Cell5 => self.cs5flt,
+                        CellId::Cell6 => self.cs6flt,
+                        CellId::Cell7 => self.cs7flt,
+                        CellId::Cell8 => self.cs8flt,
+                        CellId::Cell9 => self.cs9flt,
+                        CellId::Cell10 => self.cs10flt,
+                        CellId::Cell11 => self.cs11flt,
+                        CellId::Cell12 => self.cs12flt,
+                        CellId::Cell13 => self.cs13flt,
+                    }
+                })
+            }
         }
     }
 
@@ -233,7 +326,7 @@ pub mod fault_counts {
     #[derive(Copy, Clone, Debug, defmt::Format)]
     pub struct FaultCounts {
         /// Source: StatusC.
-        pub csxflt: ComparisonFaultFlags,
+        pub csxflt: comparison_faults::ComparisonFaultFlags,
         /// Source: StatusC.
         pub smed: u32,
         /// Source: StatusC.
@@ -264,12 +357,15 @@ pub mod fault_counts {
         pub vde: u32,
         /// Source: StatusC.
         pub vdel: u32,
+
+        /// Source: StatusD.
+        pub cxovuv: undervotlage_overvoltage::UndervoltageOvervoltageFlags,
     }
     impl FaultCounts {
         /// Default FaultCounts where everything is zeroed.
         pub const fn new() -> Self {
             Self {
-                csxflt: ComparisonFaultFlags {
+                csxflt: comparison_faults::ComparisonFaultFlags {
                     cs1flt: 0,
                     cs2flt: 0,
                     cs3flt: 0,
@@ -302,6 +398,24 @@ pub mod fault_counts {
                 spiflt: 0,
                 vde: 0,
                 vdel: 0,
+                cxovuv: undervotlage_overvoltage::UndervoltageOvervoltageFlags {
+                    c1uv: 0, c1ov: 0,
+                    c2uv: 0, c2ov: 0,
+                    c3uv: 0, c3ov: 0,
+                    c4uv: 0, c4ov: 0,
+                    c5uv: 0, c5ov: 0,
+                    c6uv: 0, c6ov: 0,
+                    c7uv: 0, c7ov: 0,
+                    c8uv: 0, c8ov: 0,
+                    c9uv: 0, c9ov: 0,
+                    c10uv: 0, c10ov: 0,
+                    c11uv: 0, c11ov: 0,
+                    c12uv: 0, c12ov: 0,
+                    c13uv: 0, c13ov: 0,
+                    c14uv: 0, c14ov: 0,
+                    c15uv: 0, c15ov: 0,
+                    c16uv: 0, c16ov: 0,
+                }
             }
         }
     }
