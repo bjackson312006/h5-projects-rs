@@ -1,4 +1,6 @@
 //! Module for caching SPI reads to the ADBMS6830B chips.
+//! 
+//! (this module uses `Cell` because the cache can be accessed at any time by different tasks. it doesn't use RefCell because that can panic. maybe in the future it would be good to look into RefCell but the Cell copies are realistically never going to be an actual issue)
 
 use adbms6830b::{chip::registers::{
     ReadableGroup,
@@ -9,12 +11,13 @@ use adbms6830b::{chip::registers::{
     results::{FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE},
     results::{SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE},
     status::{StatusC,},
+    clear::{ClearFlags, types::ClearAction},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
 use crate::segments::core::alias::{SpiError, Service};
 use adbms6830b::line::PecStatus;
 use super::chips::ChipId;
-use core::cell::Cell;
+use core::cell::{Cell};
 use super::chips::IndexByChip;
 use super::core::alias;
 use super::chips::ADBMS6830B_NUM_CHIPS;
@@ -172,7 +175,148 @@ impl<R: ReadableGroup> RegisterCache<R> {
     }
 }
 
+pub mod fault_counts {
+    use crate::segments::chips::cells::{IndexByCell, CellId};
+    use super::{CacheData, IndexByChip};
+
+    /// Comparison fault flags from StatusC.
+    #[derive(Copy, Clone, Debug, defmt::Format)]
+    pub struct ComparisonFaultFlags {
+        pub cs1flt: u32,
+        pub cs2flt: u32,
+        pub cs3flt: u32,
+        pub cs4flt: u32,
+        pub cs5flt: u32,
+        pub cs6flt: u32,
+        pub cs7flt: u32,
+        pub cs8flt: u32,
+        pub cs9flt: u32,
+        pub cs10flt: u32,
+        pub cs11flt: u32,
+        pub cs12flt: u32,
+        pub cs13flt: u32,
+        pub cs14flt: u32,
+        pub cs15flt: u32,
+        pub cs16flt: u32,
+    }
+    impl ComparisonFaultFlags {
+        /// Lets you index the comparison fault flags by cell. This throws away cs14flt through cs16flt since we only have 13 cells.
+        pub fn idx_by_cell(&self) -> IndexByCell<u32> {
+            IndexByCell::from_fn(|cell| {
+                match cell {
+                    CellId::Cell1 => self.cs1flt,
+                    CellId::Cell2 => self.cs2flt,
+                    CellId::Cell3 => self.cs3flt,
+                    CellId::Cell4 => self.cs4flt,
+                    CellId::Cell5 => self.cs5flt,
+                    CellId::Cell6 => self.cs6flt,
+                    CellId::Cell7 => self.cs7flt,
+                    CellId::Cell8 => self.cs8flt,
+                    CellId::Cell9 => self.cs9flt,
+                    CellId::Cell10 => self.cs10flt,
+                    CellId::Cell11 => self.cs11flt,
+                    CellId::Cell12 => self.cs12flt,
+                    CellId::Cell13 => self.cs13flt,
+                }
+            })
+        }
+    }
+
+    /// Persistent counts of ADBMS6830B fault flags for CacheData.
+    /// 
+    /// Basically, any time a fault flag gets read in here during an update (e.g., the fault flags on StatusC), that fault flag will be
+    /// incremented here. The fault flags are W1C and are cleared each update, so this may help callers track the history of faults that
+    /// have shown up, or detect that a fault occured during a cache read that they may have missed.
+    /// 
+    /// Also, this isn't meant to be a super sophisticated error-detection thing. It is supposed to be pretty dumb and just a basic relay of fault values. If
+    /// these are increased, it might not necessarily mean that something super serious is going on, it's just possibly useful data for debugging and diagnostic stuff.
+    #[derive(Copy, Clone, Debug, defmt::Format)]
+    pub struct FaultCounts {
+        /// Source: StatusC.
+        pub csxflt: ComparisonFaultFlags,
+        /// Source: StatusC.
+        pub smed: u32,
+        /// Source: StatusC.
+        pub sed: u32,
+        /// Source: StatusC.
+        pub cmed: u32,
+        /// Source: StatusC.
+        pub ced: u32,
+        /// Source: StatusC.
+        pub vd_uv: u32,
+        /// Source: StatusC.
+        pub vd_ov: u32,
+        /// Source: StatusC.
+        pub va_uv: u32,
+        /// Source: StatusC.
+        pub va_ov: u32,
+        /// Source: StatusC.
+        pub oscchk: u32,
+        /// Source: StatusC.
+        pub tmodchk: u32,
+        /// Source: StatusC.
+        pub thsd: u32,
+        /// Source: StatusC.
+        pub sleep: u32,
+        /// Source: StatusC.
+        pub spiflt: u32,
+        /// Source: StatusC.
+        pub vde: u32,
+        /// Source: StatusC.
+        pub vdel: u32,
+    }
+    impl FaultCounts {
+        /// Default FaultCounts where everything is zeroed.
+        pub const fn new() -> Self {
+            Self {
+                csxflt: ComparisonFaultFlags {
+                    cs1flt: 0,
+                    cs2flt: 0,
+                    cs3flt: 0,
+                    cs4flt: 0,
+                    cs5flt: 0,
+                    cs6flt: 0,
+                    cs7flt: 0,
+                    cs8flt: 0,
+                    cs9flt: 0,
+                    cs10flt: 0,
+                    cs11flt: 0,
+                    cs12flt: 0,
+                    cs13flt: 0,
+                    cs14flt: 0,
+                    cs15flt: 0,
+                    cs16flt: 0
+                },
+                smed: 0,
+                sed: 0,
+                cmed: 0,
+                ced: 0,
+                vd_uv: 0,
+                vd_ov: 0,
+                va_uv: 0,
+                va_ov: 0,
+                oscchk: 0,
+                tmodchk: 0,
+                thsd: 0,
+                sleep: 0,
+                spiflt: 0,
+                vde: 0,
+                vdel: 0,
+            }
+        }
+    }
+
+    impl CacheData {
+        /// Gets persistent fault counts.
+        pub fn get_fault_counts(&self) -> IndexByChip<FaultCounts> {
+            self.fault_counts.lock(|inner| inner.get())
+        }
+    }
+}
+
 pub struct CacheData {
+    fault_counts: embassy_sync::blocking_mutex::ThreadModeMutex<Cell<IndexByChip<fault_counts::FaultCounts>>>,
+
     raxa: RegisterCache<RedundantAuxillaryA>,
     raxb: RegisterCache<RedundantAuxillaryB>,
     raxc: RegisterCache<RedundantAuxillaryC>,
@@ -207,6 +351,8 @@ pub struct CacheData {
 impl CacheData {
     pub(super) const fn new() -> Self {
         Self {
+            fault_counts: embassy_sync::blocking_mutex::ThreadModeMutex::new(Cell::new(IndexByChip::new([fault_counts::FaultCounts::new(); ADBMS6830B_NUM_CHIPS]))),
+
             raxa: RegisterCache::new(),
             raxb: RegisterCache::new(),
             raxc: RegisterCache::new(),
@@ -236,7 +382,7 @@ impl CacheData {
             scd: RegisterCache::new(),
             sce: RegisterCache::new(),
 
-             statc: RegisterCache::new(),
+            statc: RegisterCache::new(),
         }
     }
 }
@@ -1039,6 +1185,72 @@ pub mod status_c {
     }
 
     impl CacheData {
+        /// Helper that updates fault counters for StatusC counts, and then returns an array of the ClearFlags we should clear
+        fn update_status_c_fault_counts(&self, readings: &IndexByChip<Reading<StatusC>>) -> IndexByChip<ClearFlags> {
+            // ClearFlags::new() is all-DontClear, so an untouched entry is a genuine no-op.
+            let mut clears: IndexByChip<ClearFlags> = IndexByChip::from_fn(|_| ClearFlags::new());
+
+            self.fault_counts.lock(|cell| {
+                let mut counts = cell.get();
+
+                for (chip, reading) in readings.iter() {
+                    // if the PEC failed then we shouldnt count any of those fault flags because they could just be junk. for the same reason, we dont want to W1C those flags either. if they are really set then they will appear when we have a read with a PEC that actually passes
+                    if !reading.pec().is_success() { continue; }
+
+                    let statc = reading.data();
+                    let c = counts.get_mut(chip);
+                    let clear = clears.get_mut(chip);
+
+                    macro_rules! record {
+                        ($flag:ident, $count:expr, $with:ident) => {
+                            if statc.$flag().is_set() {
+                                $count = $count.saturating_add(1);
+                                *clear = clear.$with(ClearAction::Clear);
+                            }
+                        };
+                    }
+
+                    record!(cs1flt, c.csxflt.cs1flt, with_cl_cs1flt);
+                    record!(cs2flt, c.csxflt.cs2flt, with_cl_cs2flt);
+                    record!(cs3flt, c.csxflt.cs3flt, with_cl_cs3flt);
+                    record!(cs4flt, c.csxflt.cs4flt, with_cl_cs4flt);
+                    record!(cs5flt, c.csxflt.cs5flt, with_cl_cs5flt);
+                    record!(cs6flt, c.csxflt.cs6flt, with_cl_cs6flt);
+                    record!(cs7flt, c.csxflt.cs7flt, with_cl_cs7flt);
+                    record!(cs8flt, c.csxflt.cs8flt, with_cl_cs8flt);
+                    record!(cs9flt, c.csxflt.cs9flt, with_cl_cs9flt);
+                    record!(cs10flt, c.csxflt.cs10flt, with_cl_cs10flt);
+                    record!(cs11flt, c.csxflt.cs11flt, with_cl_cs11flt);
+                    record!(cs12flt, c.csxflt.cs12flt, with_cl_cs12flt);
+                    record!(cs13flt, c.csxflt.cs13flt, with_cl_cs13flt);
+                    record!(cs14flt, c.csxflt.cs14flt, with_cl_cs14flt);
+                    record!(cs15flt, c.csxflt.cs15flt, with_cl_cs15flt);
+                    record!(cs16flt, c.csxflt.cs16flt, with_cl_cs16flt);
+
+                    record!(smed,    c.smed,    with_cl_smed);
+                    record!(sed,     c.sed,     with_cl_sed);
+                    record!(cmed,    c.cmed,    with_cl_cmed);
+                    record!(ced,     c.ced,     with_cl_ced);
+                    record!(vd_uv,   c.vd_uv,   with_cl_vduv);
+                    record!(vd_ov,   c.vd_ov,   with_cl_vdov);
+                    record!(va_uv,   c.va_uv,   with_cl_vauv);
+                    record!(va_ov,   c.va_ov,   with_cl_vaov);
+                    record!(oscchk,  c.oscchk,  with_cl_oscchk);
+                    record!(tmodchk, c.tmodchk, with_cl_tmode);
+                    record!(thsd,    c.thsd,    with_cl_thsd);
+                    record!(sleep,   c.sleep,   with_cl_sleep);
+                    record!(spiflt,  c.spiflt,  with_cl_spiflt);
+                    record!(vde,     c.vde,     with_cl_vde);
+                    record!(vdel,    c.vdel,    with_cl_vdel);
+                }
+
+                cell.set(counts);
+            });
+
+            clears
+        }
+
+
         /// Updates StatusC cache.
         /// 
         /// ### Returns
@@ -1068,15 +1280,20 @@ pub mod status_c {
                 }
             }
 
-            match api.write(&[ClearFlags::clear_all(); ADBMS6830B_NUM_CHIPS]).await {
-                Ok(_) => (),
-                Err(err) => {
-                    defmt::error!("Segments: Cache: in `update_status_c(): call to `api.write(...)` for ClearFlags resulted in an error. Error: {}", err);
-                    return Err(UpdateError::ClearFlagsError(err));
+            if result.is_ok() {
+                let statc_data = self.statc.data();
+                if let Some(readings) = statc_data.data().as_ref() {
+                    let clears = self.update_status_c_fault_counts(readings);
+
+                    if let Err(err) = api.write(&clears).await {
+                        defmt::error!("Segments: Cache: in `update_status_c()`: ClearFlags write failed. Error: {}", err);
+                        return Err(UpdateError::ClearFlagsError(err));
+                    }
                 }
             }
 
             result
+
         }
 
         /// Gets the current cached StatusC data.

@@ -60,6 +60,21 @@ pub mod cells {
         pub fn iter_mut(&mut self) -> IterMut<'_, T> {
             CellId::VARIANTS.iter().copied().zip(self.data.iter_mut())
         }
+
+        /// Converts this back into its inner array.
+        pub fn into_array(self) -> [T; ADBMS6830B_NUM_CELLS_PER_CHIP] {
+            self.data
+        }
+    }
+
+    impl<T> core::ops::Deref for IndexByCell<T> {
+        type Target = [T; ADBMS6830B_NUM_CELLS_PER_CHIP];
+
+        fn deref(&self) -> &Self::Target { &self.data }
+    }
+
+    impl<T> core::ops::DerefMut for IndexByCell<T> {
+        fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
     }
 
     impl<T> IntoIterator for IndexByCell<T> {
@@ -202,6 +217,12 @@ impl<T> IndexByChip<T> {
         &self.data[i]
     }
 
+    /// Retrieves a mutable reference to the data for `chip`.
+    pub const fn get_mut(&mut self, chip: ChipId) -> &mut T {
+        let i: usize = chip as usize;
+        &mut self.data[i]
+    }
+
     pub fn from_fn(mut f: impl FnMut(ChipId) -> T) -> Self {
         Self { data: core::array::from_fn(|i| f(ChipId::VARIANTS[i])) }
     }
@@ -213,6 +234,21 @@ impl<T> IndexByChip<T> {
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         ChipId::VARIANTS.iter().copied().zip(self.data.iter_mut())
     }
+
+    /// Converts this back into its inner array.
+    pub fn into_array(self) -> [T; ADBMS6830B_NUM_CHIPS] {
+        self.data
+    }
+}
+
+impl<T> core::ops::Deref for IndexByChip<T> {
+    type Target = [T; ADBMS6830B_NUM_CHIPS];
+
+    fn deref(&self) -> &Self::Target { &self.data }
+}
+
+impl<T> core::ops::DerefMut for IndexByChip<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
 }
 
 impl<T> IntoIterator for IndexByChip<T> {
