@@ -10,8 +10,9 @@ use adbms6830b::{chip::registers::{
     results::{AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE},
     results::{FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE},
     results::{SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE},
-    status::{StatusC, StatusD},
+    status::{StatusC, StatusD, StatusA, StatusB},
     clear::{ClearFlags, types::ClearAction, ClearOvervoltageUndervoltage},
+    results::{AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
 use crate::segments::core::alias::{SpiError, Service};
@@ -459,6 +460,15 @@ pub struct CacheData {
     statc: RegisterCache<StatusC>,
 
     statd: RegisterCache<StatusD>,
+
+    auxa: RegisterCache<AuxillaryA>,
+    auxb: RegisterCache<AuxillaryB>,
+    auxc: RegisterCache<AuxillaryC>,
+    auxd: RegisterCache<AuxillaryD>,
+
+    stata: RegisterCache<StatusA>,
+
+    statb: RegisterCache<StatusB>,
 }
 impl CacheData {
     pub(super) const fn new() -> Self {
@@ -497,6 +507,15 @@ impl CacheData {
             statc: RegisterCache::new(),
 
             statd: RegisterCache::new(),
+
+            auxa: RegisterCache::new(),
+            auxb: RegisterCache::new(),
+            auxc: RegisterCache::new(),
+            auxd: RegisterCache::new(),
+
+            stata: RegisterCache::new(),
+
+            statb: RegisterCache::new(),
         }
     }
 }
@@ -1503,6 +1522,291 @@ pub mod status_d {
         pub fn get_status_d(&self) -> status_d::Raw {
             status_d::Raw {
                 statd: self.statd.data(),
+            }
+        }
+    }
+}
+
+/// Register groups AuxillaryA through D.
+pub mod aux {
+    use super::*;
+    use crate::units::ElectricPotential;
+    use uom::si::{electric_potential::microvolt};
+    use super::alias;
+
+    /// Raw Aux register readings.
+    pub struct Raw {
+        pub auxa: RegisterCacheData<AuxillaryA>,
+        pub auxb: RegisterCacheData<AuxillaryB>,
+        pub auxc: RegisterCacheData<AuxillaryC>,
+        pub auxd: RegisterCacheData<AuxillaryD>,
+    }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
+    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
+    
+    /// "Nice data" for a single chip.
+    pub struct NiceDataChip {
+        /// GPIO1 Voltage result.
+        pub gpio1_votlage: ElectricPotential,
+        /// GPIO2 Voltage result.
+        pub gpio2_votlage: ElectricPotential,
+        /// GPIO3 Voltage result.
+        pub gpio3_votlage: ElectricPotential,
+        /// GPIO4 Voltage result.
+        pub gpio4_votlage: ElectricPotential,
+        /// GPIO5 Voltage result.
+        pub gpio5_votlage: ElectricPotential,
+        /// GPIO6 Voltage result.
+        pub gpio6_votlage: ElectricPotential,
+        /// GPIO7 Voltage result.
+        pub gpio7_votlage: ElectricPotential,
+        /// GPIO8 Voltage result.
+        pub gpio8_votlage: ElectricPotential,
+        /// GPIO9 Voltage result.
+        pub gpio9_votlage: ElectricPotential,
+        /// GPIO10 Voltage result.
+        pub gpio10_votlage: ElectricPotential,
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl TryFrom<&Raw> for NiceData {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
+            let Some(a) = raw.auxa.data() else { return Err(()); };
+            let Some(b) = raw.auxb.data() else { return Err(()); };
+            let Some(c) = raw.auxc.data() else { return Err(()); };
+            let Some(d) = raw.auxd.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        NiceDataChip {
+                            gpio1_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
+                            gpio2_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
+                            gpio3_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().g3v().as_microvolts() as f32),
+
+                            gpio4_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().g4v().as_microvolts() as f32),
+                            gpio5_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().g5v().as_microvolts() as f32),
+                            gpio6_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().g6v().as_microvolts() as f32),
+
+                            gpio7_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().g7v().as_microvolts() as f32),
+                            gpio8_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().g8v().as_microvolts() as f32),
+                            gpio9_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
+
+                            gpio10_votlage: ElectricPotential::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
+                        }
+                    })
+                }
+            })
+        }
+    }
+
+    impl CacheData {
+        /// Updates caches AuxillaryA through D with new data.
+        /// 
+        /// This doesn't run the `autoconvert` function!! The caller should do that. Otherwise this update will basically do nothing
+        /// 
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_aux(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+
+            self.auxa.update(api).await?;
+            self.auxb.update(api).await?;
+            self.auxc.update(api).await?;
+            self.auxd.update(api).await?;
+
+            Ok(())
+        }
+
+        /// Gets the current cached Aux data.
+        pub fn get_aux(&self) -> aux::Raw {
+            aux::Raw {
+                auxa: self.auxa.data(),
+                auxb: self.auxb.data(),
+                auxc: self.auxc.data(),
+                auxd: self.auxd.data(),
+            }
+        }
+    }
+}
+
+/// StatusA register group.
+pub mod status_a {
+    use super::*;
+    use crate::units::{ElectricPotential, Temperature, microcelcius};
+    use uom::si::{electric_potential::microvolt};
+    use super::alias;
+
+    /// Raw StatusA register reading.
+    pub struct Raw {
+        pub stata: RegisterCacheData<StatusA>,
+    }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
+    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
+    
+    /// "Nice data" for a single chip.
+    pub struct NiceDataChip {
+        /// Second reference voltage.
+        pub vref2: ElectricPotential,
+        /// Internal die temperature.
+        pub itmp: Temperature,
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl TryFrom<&Raw> for NiceData {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
+            let Some(stata) = raw.stata.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        NiceDataChip {
+                            vref2: ElectricPotential::new::<microvolt>(stata.get(chip).data().vref2().as_microvolts() as f32),
+                            itmp: Temperature::new::<microcelcius>(stata.get(chip).data().itmp().as_microcelsius() as f32),
+                        }
+                    })
+                }
+            })
+        }
+    }
+
+    impl CacheData {
+        /// Updates StatusA cache with new data.
+        /// 
+        /// This doesn't run the `autoconvert` function!! The caller should do that. Otherwise this update will basically do nothing
+        /// 
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_status_a(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+
+            self.stata.update(api).await?;
+
+            Ok(())
+        }
+
+        /// Gets the current cached StatusA data.
+        pub fn get_status_a(&self) -> status_a::Raw {
+            status_a::Raw {
+                stata: self.stata.data(),
+            }
+        }
+    }
+}
+
+/// StatusB register group.
+pub mod status_b {
+    use super::*;
+    use crate::units::{ElectricPotential};
+    use uom::si::{electric_potential::microvolt};
+    use super::alias;
+
+    /// Raw StatusB register reading.
+    pub struct Raw {
+        pub statb: RegisterCacheData<StatusB>,
+    }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
+    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
+    
+    /// "Nice data" for a single chip.
+    pub struct NiceDataChip {
+        /// Digital power supply voltage.
+        pub vd: ElectricPotential,
+        /// Analog power supply voltage.
+        pub va: ElectricPotential,
+        /// VREF2 voltage across resistor.
+        pub vres: ElectricPotential,
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl TryFrom<&Raw> for NiceData {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
+            let Some(statb) = raw.statb.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        NiceDataChip {
+                            vd: ElectricPotential::new::<microvolt>(statb.get(chip).data().vd().as_microvolts() as f32),
+                            va: ElectricPotential::new::<microvolt>(statb.get(chip).data().va().as_microvolts() as f32),
+                            vres: ElectricPotential::new::<microvolt>(statb.get(chip).data().vres().as_microvolts() as f32),
+                        }
+                    })
+                }
+            })
+        }
+    }
+
+    impl CacheData {
+        /// Updates StatusB cache with new data.
+        /// 
+        /// This doesn't run the `autoconvert` function!! The caller should do that. Otherwise this update will basically do nothing
+        /// 
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_status_b(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+
+            self.statb.update(api).await?;
+
+            Ok(())
+        }
+
+        /// Gets the current cached StatusB data.
+        pub fn get_status_b(&self) -> status_b::Raw {
+            status_b::Raw {
+                statb: self.statb.data(),
             }
         }
     }

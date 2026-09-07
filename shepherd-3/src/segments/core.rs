@@ -378,6 +378,9 @@ pub mod task {
 
         const SNAP_REGISTERS_MAX_WAITERS: usize = 10;
         pub static SNAP_REGISTERS_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, SNAP_REGISTERS_MAX_WAITERS> = Broadcast::new();
+
+        const ADAX_REGISTERS_MAX_WAITERS: usize = 10;
+        pub static ADAX_REGISTERS_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, ADAX_REGISTERS_MAX_WAITERS> = Broadcast::new();
     }
 
     /// A unit of work the segments task runs on a schedule.
@@ -392,6 +395,10 @@ pub mod task {
         /// 
         /// This includes the following registers: CellVoltages, AverageCellVoltages, FilteredCellVoltages, SVotlages, StatusC, StatusD.
         SnapRegisters,
+        /// Job that refreshes registers that require an ADAX trigger/poll before being read. These are in a single job so data can be compared across these registers coherently.
+        /// 
+        /// This includes the following registers: Aux, StatusA, StatusB
+        AdaxRegisters,
     }
 
     impl Job {
@@ -463,6 +470,39 @@ pub mod task {
                     }
 
                     signals::SNAP_REGISTERS_FRESH_DATA_SIGNAL.signal();
+                },
+
+                Job::AdaxRegisters => {
+                    use adbms6830b::chip::commands::adc::{Aux1InputSelection, OpenWireAux, Pull};
+
+                    /// Autoconvert timeout in ms.
+                    const TIMEOUT_MS: u64 = 100;
+
+                    // need to run autoconvert to update the data we read
+                    if let Err(err) = segments.service.api().adax_autoconvert(OpenWireAux::Off, Pull::PullDown, Aux1InputSelection::All, TIMEOUT_MS).await {
+                        defmt::error!("Segments: Inside scheduled AdaxRegisters job: call to `adax_autoconvert()` resulted in an error. Error: {}", err);
+                        return;
+                    }
+
+                    // Update AuxillaryA through D.
+                    if let Err(err) = cache::CACHE.update_aux(segments.service.api()).await {
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_aux()`. Error: {}", err);
+                        return;
+                    }
+
+                    // Update StatusA.
+                    if let Err(err) = cache::CACHE.update_status_a(segments.service.api()).await {
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_status_a()`. Error: {}", err);
+                        return;
+                    }
+
+                    // Update StatusB.
+                    if let Err(err) = cache::CACHE.update_status_b(segments.service.api()).await {
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_status_b()`. Error: {}", err);
+                        return;
+                    }
+
+                    signals::ADAX_REGISTERS_FRESH_DATA_SIGNAL.signal();
                 }
             }
         }
@@ -501,7 +541,9 @@ pub mod task {
         /// Frequency (in ms) at which the segments task should update the Redundant Aux cache.
         const SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS: u64 = 300;
         /// Frequency (in ms) at which the segments task should update the cache for the SNAP registers.
-        const SEGMENTS_SNAP_REGISTERS_UPDATE_FREQUENCY_MS: u64 = 100;
+        const SEGMENTS_SNAP_REGISTERS_UPDATE_FREQUENCY_MS: u64 = 300;
+        /// Frequency (in ms) at which the segments task should update the cache for the ADAX registers.
+        const SEGMENTS_ADAX_REGISTERS_UPDATE_FREQUENCY_MS: u64 = 300;
 
         let mut segments = Segments::new(r_linea, r_lineb);
 
@@ -509,6 +551,7 @@ pub mod task {
         let mut schedule = [
             Scheduled::every(SEGMENTS_SERVICE_FREQUENCY_MS, Job::Service),
             Scheduled::every(SEGMENTS_SNAP_REGISTERS_UPDATE_FREQUENCY_MS, Job::SnapRegisters),
+            Scheduled::every(SEGMENTS_ADAX_REGISTERS_UPDATE_FREQUENCY_MS, Job::AdaxRegisters),
             Scheduled::every(SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS, Job::RedundantAux),
         ];
 

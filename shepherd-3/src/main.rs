@@ -1,5 +1,7 @@
 #![no_std]
 #![no_main]
+#[macro_use]
+extern crate uom;
 
 use defmt::{Debug2Format, info, warn};
 use embassy_executor::Spawner;
