@@ -10,8 +10,8 @@ use adbms6830b::{chip::registers::{
     results::{AverageCellVoltagesA, AverageCellVoltagesB, AverageCellVoltagesC, AverageCellVoltagesD, AverageCellVoltagesE},
     results::{FilteredCellVoltagesA, FilteredCellVoltagesB, FilteredCellVoltagesC, FilteredCellVoltagesD, FilteredCellVoltagesE},
     results::{SVoltagesA, SVoltagesB, SVoltagesC, SVoltagesD, SVoltagesE},
-    status::{StatusC,},
-    clear::{ClearFlags, types::ClearAction},
+    status::{StatusC, StatusD},
+    clear::{ClearFlags, types::ClearAction, ClearOvervoltageUndervoltage},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
 use crate::segments::core::alias::{SpiError, Service};
@@ -457,6 +457,8 @@ pub struct CacheData {
     sce: RegisterCache<SVoltagesE>,
 
     statc: RegisterCache<StatusC>,
+
+    statd: RegisterCache<StatusD>,
 }
 impl CacheData {
     pub(super) const fn new() -> Self {
@@ -493,6 +495,8 @@ impl CacheData {
             sce: RegisterCache::new(),
 
             statc: RegisterCache::new(),
+
+            statd: RegisterCache::new(),
         }
     }
 }
@@ -1229,7 +1233,6 @@ pub mod status_c {
     impl CacheData {
         /// Helper that updates fault counters for StatusC counts, and then returns an array of the ClearFlags we should clear
         fn update_status_c_fault_counts(&self, readings: &IndexByChip<Reading<StatusC>>) -> IndexByChip<ClearFlags> {
-            // ClearFlags::new() is all-DontClear, so an untouched entry is a genuine no-op.
             let mut clears: IndexByChip<ClearFlags> = IndexByChip::from_fn(|_| ClearFlags::new());
 
             self.fault_counts.lock(|cell| {
@@ -1324,6 +1327,171 @@ pub mod status_c {
         pub fn get_status_c(&self) -> status_c::Raw {
             status_c::Raw {
                 statc: self.statc.data(),
+            }
+        }
+    }
+}
+
+/// Status D register group.
+pub mod status_d {
+    use super::*;
+    use super::alias;
+    use crate::segments::chips::cells::{IndexByCell, CellId};
+    use adbms6830b::chip::registers::status::types::d::{CellUndervoltageFlag, CellOvervoltageFlag, OscillatorCheckCounter};
+
+    /// Raw StatusD register reading.
+    pub struct Raw {
+        pub statd: RegisterCacheData<StatusD>,
+    }
+    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
+
+    /// Undervoltage/overvoltage flag state for an individual cell.
+    pub struct CellUndervoltageOvervoltageState {
+        pub undervoltage: CellUndervoltageFlag,
+        pub overvoltage: CellOvervoltageFlag,
+    }
+    
+    /// "Nice data" for a single chip.
+    pub struct NiceDataChip {
+        pub cell_undervoltage_overvoltage_state: IndexByCell<CellUndervoltageOvervoltageState>,
+        pub oscillator_check_counter: OscillatorCheckCounter,
+    }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl TryFrom<&Raw> for NiceData {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
+            let Some(statd) = raw.statd.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        let chip_statd = statd.get(chip).data();
+                        NiceDataChip {
+                            cell_undervoltage_overvoltage_state: IndexByCell::from_fn(|cell| {
+                                match cell {
+                                    CellId::Cell1 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c1uv(), overvoltage: chip_statd.c1ov() },
+                                    CellId::Cell2 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c2uv(), overvoltage: chip_statd.c2ov() },
+                                    CellId::Cell3 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c3uv(), overvoltage: chip_statd.c3ov() },
+                                    CellId::Cell4 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c4uv(), overvoltage: chip_statd.c4ov() },
+                                    CellId::Cell5 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c5uv(), overvoltage: chip_statd.c5ov() },
+                                    CellId::Cell6 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c6uv(), overvoltage: chip_statd.c6ov() },
+                                    CellId::Cell7 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c7uv(), overvoltage: chip_statd.c7ov() },
+                                    CellId::Cell8 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c8uv(), overvoltage: chip_statd.c8ov() },
+                                    CellId::Cell9 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c9uv(), overvoltage: chip_statd.c9ov() },
+                                    CellId::Cell10 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c10uv(), overvoltage: chip_statd.c10ov() },
+                                    CellId::Cell11 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c11uv(), overvoltage: chip_statd.c11ov() },
+                                    CellId::Cell12 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c12uv(), overvoltage: chip_statd.c12ov() },
+                                    CellId::Cell13 => CellUndervoltageOvervoltageState { undervoltage: chip_statd.c13uv(), overvoltage: chip_statd.c13ov() },
+                                }
+                            }),
+                            oscillator_check_counter: chip_statd.oc_cntr(),
+                        }
+                    })
+                }
+            })
+        }
+    }
+
+    impl CacheData {
+        /// Helper that updates fault counters for StatusD counts, and then returns an array of the ClearOvervoltageUndervoltage we should clear
+        fn update_status_d_fault_counts(&self, readings: &IndexByChip<Reading<StatusD>>) -> IndexByChip<ClearOvervoltageUndervoltage> {
+            let mut clears: IndexByChip<ClearOvervoltageUndervoltage> = IndexByChip::from_fn(|_| ClearOvervoltageUndervoltage::new());
+
+            self.fault_counts.lock(|cell| {
+                let mut counts = cell.get();
+
+                for (chip, reading) in readings.iter() {
+                    // if the PEC failed then we shouldnt count any of those fault flags because they could just be junk. for the same reason, we dont want to W1C those flags either. if they are really set then they will appear when we have a read with a PEC that actually passes
+                    if !reading.pec().is_success() { continue; }
+
+                    let statd = reading.data();
+                    let c = counts.get_mut(chip);
+                    let clear = clears.get_mut(chip);
+
+                    macro_rules! record {
+                        ($flag:ident, $count:expr, $with:ident) => {
+                            if statd.$flag().is_set() {
+                                $count = $count.saturating_add(1);
+                                *clear = clear.$with(ClearAction::Clear);
+                            }
+                        };
+                    }
+
+                    record!(c1uv, c.cxovuv.c1uv, with_cl_c1uv); record!(c1ov, c.cxovuv.c1ov, with_cl_c1ov);
+                    record!(c2uv, c.cxovuv.c2uv, with_cl_c2uv); record!(c2ov, c.cxovuv.c2ov, with_cl_c2ov);
+                    record!(c3uv, c.cxovuv.c3uv, with_cl_c3uv); record!(c3ov, c.cxovuv.c3ov, with_cl_c3ov);
+                    record!(c4uv, c.cxovuv.c4uv, with_cl_c4uv); record!(c4ov, c.cxovuv.c4ov, with_cl_c4ov);
+                    record!(c5uv, c.cxovuv.c5uv, with_cl_c5uv); record!(c5ov, c.cxovuv.c5ov, with_cl_c5ov);
+                    record!(c6uv, c.cxovuv.c6uv, with_cl_c6uv); record!(c6ov, c.cxovuv.c6ov, with_cl_c6ov);
+                    record!(c7uv, c.cxovuv.c7uv, with_cl_c7uv); record!(c7ov, c.cxovuv.c7ov, with_cl_c7ov);
+                    record!(c8uv, c.cxovuv.c8uv, with_cl_c8uv); record!(c8ov, c.cxovuv.c8ov, with_cl_c8ov);
+                    record!(c9uv, c.cxovuv.c9uv, with_cl_c9uv); record!(c9ov, c.cxovuv.c9ov, with_cl_c9ov);
+                    record!(c10uv, c.cxovuv.c10uv, with_cl_c10uv); record!(c10ov, c.cxovuv.c10ov, with_cl_c10ov);
+                    record!(c11uv, c.cxovuv.c11uv, with_cl_c11uv); record!(c11ov, c.cxovuv.c11ov, with_cl_c11ov);
+                    record!(c12uv, c.cxovuv.c12uv, with_cl_c12uv); record!(c12ov, c.cxovuv.c12ov, with_cl_c12ov);
+                    record!(c13uv, c.cxovuv.c13uv, with_cl_c13uv); record!(c13ov, c.cxovuv.c13ov, with_cl_c13ov);
+                    record!(c14uv, c.cxovuv.c14uv, with_cl_c14uv); record!(c14ov, c.cxovuv.c14ov, with_cl_c14ov);
+                    record!(c15uv, c.cxovuv.c15uv, with_cl_c15uv); record!(c15ov, c.cxovuv.c15ov, with_cl_c15ov);
+                    record!(c16uv, c.cxovuv.c16uv, with_cl_c16uv); record!(c16ov, c.cxovuv.c16ov, with_cl_c16ov);
+                }
+
+                cell.set(counts);
+            });
+
+            clears
+        }
+
+
+        /// Updates StatusD cache.
+        /// 
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_status_d(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+
+            let result: Result<(), UpdateError> = async {
+                self.statd.update(api).await?;
+                Ok(())
+            }.await;
+
+            if result.is_ok() {
+                let statd_data = self.statd.data();
+                if let Some(readings) = statd_data.data().as_ref() {
+                    let clears = self.update_status_d_fault_counts(readings);
+
+                    if let Err(err) = api.write(&clears.into_array()).await {
+                        defmt::error!("Segments: Cache: in `update_status_d()`: ClearFlags write failed. Error: {}", err);
+                        return Err(UpdateError::ClearFlagsError(err));
+                    }
+                }
+            }
+
+            result
+
+        }
+
+        /// Gets the current cached StatusD data.
+        pub fn get_status_d(&self) -> status_d::Raw {
+            status_d::Raw {
+                statd: self.statd.data(),
             }
         }
     }

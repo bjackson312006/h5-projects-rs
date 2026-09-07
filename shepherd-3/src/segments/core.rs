@@ -450,7 +450,11 @@ pub mod task {
                         return;
                     }
 
-                    // u_TODO - update status D
+                    // Update StatusD.
+                    if let Err(err) = cache::CACHE.update_status_d(segments.service.api()).await {
+                        defmt::error!("Segments: Inside scheduled SnapRegisters job: Failed to call `update_status_d()`. Error: {}", err);
+                        return;
+                    }
 
                     // Unsnap.
                     if let Err(err) = segments.service.api().command(commands::snapshot::unsnap()).await {
