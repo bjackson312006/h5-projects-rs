@@ -1283,10 +1283,21 @@ pub mod status_c {
                     record!(oscchk,  c.oscchk,  with_cl_oscchk);
                     record!(tmodchk, c.tmodchk, with_cl_tmode);
                     record!(thsd,    c.thsd,    with_cl_thsd);
-                    record!(sleep,   c.sleep,   with_cl_sleep);
                     record!(spiflt,  c.spiflt,  with_cl_spiflt);
                     record!(vde,     c.vde,     with_cl_vde);
                     record!(vdel,    c.vdel,    with_cl_vdel);
+
+                    // SPECIFIC CASE FOR THE SLEEP BIT
+                    // the SLEEP bit gets read and cleared by the `Service` as part of the sleep detection stuff.
+                    // so we should add increment the flag's counter in the fault counter, but shouldnt clear it. this way, the `Service` will be able to read the SLEEP bit.
+                    // this makes it so the Service can correctly detect sleep and flag the app so we can reset (which includes clearing the SLEEP bit).
+                    //
+                    // this is kinda jank. realistically the Service should probably be the one that owns all the flag clears/fault counting, or maybe the sleep detection stuff (and maybe isospi recovery) should just be moved into the application entirely.
+                    // but for now this is the most straightforward solution
+                    if statc.sleep().is_set() {
+                        c.sleep = c.sleep.saturating_add(1);
+                        // dont clear it!!!
+                    }
                 }
 
                 cell.set(counts);
@@ -1478,7 +1489,7 @@ pub mod status_d {
                     let clears = self.update_status_d_fault_counts(readings);
 
                     if let Err(err) = api.write(&clears.into_array()).await {
-                        defmt::error!("Segments: Cache: in `update_status_d()`: ClearFlags write failed. Error: {}", err);
+                        defmt::error!("Segments: Cache: in `update_status_d()`: ClearOvervoltageUndervoltage write failed. Error: {}", err);
                         return Err(UpdateError::ClearFlagsError(err));
                     }
                 }
