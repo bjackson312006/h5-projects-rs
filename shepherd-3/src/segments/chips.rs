@@ -67,16 +67,6 @@ pub mod cells {
         }
     }
 
-    impl<T> core::ops::Deref for IndexByCell<T> {
-        type Target = [T; ADBMS6830B_NUM_CELLS_PER_CHIP];
-
-        fn deref(&self) -> &Self::Target { &self.data }
-    }
-
-    impl<T> core::ops::DerefMut for IndexByCell<T> {
-        fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
-    }
-
     impl<T> IntoIterator for IndexByCell<T> {
         type Item = (CellId, T);
         type IntoIter = IntoIter<T>;
@@ -239,16 +229,6 @@ impl<T> IndexByChip<T> {
     pub fn into_array(self) -> [T; ADBMS6830B_NUM_CHIPS] {
         self.data
     }
-}
-
-impl<T> core::ops::Deref for IndexByChip<T> {
-    type Target = [T; ADBMS6830B_NUM_CHIPS];
-
-    fn deref(&self) -> &Self::Target { &self.data }
-}
-
-impl<T> core::ops::DerefMut for IndexByChip<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
 }
 
 impl<T> IntoIterator for IndexByChip<T> {

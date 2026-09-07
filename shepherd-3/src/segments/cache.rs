@@ -1285,7 +1285,7 @@ pub mod status_c {
                 if let Some(readings) = statc_data.data().as_ref() {
                     let clears = self.update_status_c_fault_counts(readings);
 
-                    if let Err(err) = api.write(&clears).await {
+                    if let Err(err) = api.write(&clears.into_array()).await {
                         defmt::error!("Segments: Cache: in `update_status_c()`: ClearFlags write failed. Error: {}", err);
                         return Err(UpdateError::ClearFlagsError(err));
                     }
