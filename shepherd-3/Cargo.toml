@@ -32,6 +32,7 @@ uom = { version = "0.38.0", default-features = false, features = ["si", "f32"] }
 
 adbms6830b = { git = "https://github.com/bjackson312006/firmware-rs.git", branch = "adbms6830b", features = ["defmt"] }
 defmt-monitor = { git = "https://github.com/bjackson312006/defmt-monitor.git", branch = "main" }
+libm = { version = "0.2.16" }
 
 [lints.clippy]
 disallowed_types = "deny"

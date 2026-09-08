@@ -526,6 +526,7 @@ pub mod redundant_aux {
     use crate::units::ElectricPotential;
     use uom::si::{electric_potential::microvolt};
     use super::alias;
+    use crate::segments::chips::gpios::{GpioId, IndexByGpio};
 
     /// Raw Redundant Aux register readings.
     pub struct Raw {
@@ -542,26 +543,14 @@ pub mod redundant_aux {
     
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
-        /// GPIO1 Voltage result.
-        pub gpio1_votlage: ElectricPotential,
-        /// GPIO2 Voltage result.
-        pub gpio2_votlage: ElectricPotential,
-        /// GPIO3 Voltage result.
-        pub gpio3_votlage: ElectricPotential,
-        /// GPIO4 Voltage result.
-        pub gpio4_votlage: ElectricPotential,
-        /// GPIO5 Voltage result.
-        pub gpio5_votlage: ElectricPotential,
-        /// GPIO6 Voltage result.
-        pub gpio6_votlage: ElectricPotential,
-        /// GPIO7 Voltage result.
-        pub gpio7_votlage: ElectricPotential,
-        /// GPIO8 Voltage result.
-        pub gpio8_votlage: ElectricPotential,
-        /// GPIO9 Voltage result.
-        pub gpio9_votlage: ElectricPotential,
-        /// GPIO10 Voltage result.
-        pub gpio10_votlage: ElectricPotential,
+        inner: IndexByGpio<ElectricPotential>,
+    }
+    impl core::ops::Deref for NiceDataChip {
+        type Target = IndexByGpio<ElectricPotential>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
@@ -591,19 +580,23 @@ pub mod redundant_aux {
                 inner: {
                     IndexByChip::from_fn(|chip| {
                         NiceDataChip {
-                            gpio1_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
-                            gpio2_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
-                            gpio3_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
+                            inner: IndexByGpio::from_fn(|gpio| {
+                                match gpio {
+                                    GpioId::Gpio1 => ElectricPotential::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
+                                    GpioId::Gpio2 => ElectricPotential::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
+                                    GpioId::Gpio3 => ElectricPotential::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
 
-                            gpio4_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
-                            gpio5_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
-                            gpio6_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
+                                    GpioId::Gpio4 => ElectricPotential::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
+                                    GpioId::Gpio5 => ElectricPotential::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
+                                    GpioId::Gpio6 => ElectricPotential::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
 
-                            gpio7_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
-                            gpio8_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
-                            gpio9_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
-
-                            gpio10_votlage: ElectricPotential::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
+                                    GpioId::Gpio7 => ElectricPotential::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
+                                    GpioId::Gpio8 => ElectricPotential::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
+                                    GpioId::Gpio9 => ElectricPotential::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
+                                    
+                                    GpioId::Gpio10 => ElectricPotential::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
+                                }
+                            })
                         }
                     })
                 }
@@ -1519,10 +1512,13 @@ pub mod status_d {
 
 /// Register groups AuxillaryA through D.
 pub mod aux {
-    use super::*;
+    use core::ops::Index;
+
+use super::*;
     use crate::units::ElectricPotential;
     use uom::si::{electric_potential::microvolt};
     use super::alias;
+    use crate::segments::chips::gpios::{IndexByGpio, GpioId};
 
     /// Raw Aux register readings.
     pub struct Raw {
@@ -1539,26 +1535,8 @@ pub mod aux {
     
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
-        /// GPIO1 Voltage result.
-        pub gpio1_votlage: ElectricPotential,
-        /// GPIO2 Voltage result.
-        pub gpio2_votlage: ElectricPotential,
-        /// GPIO3 Voltage result.
-        pub gpio3_votlage: ElectricPotential,
-        /// GPIO4 Voltage result.
-        pub gpio4_votlage: ElectricPotential,
-        /// GPIO5 Voltage result.
-        pub gpio5_votlage: ElectricPotential,
-        /// GPIO6 Voltage result.
-        pub gpio6_votlage: ElectricPotential,
-        /// GPIO7 Voltage result.
-        pub gpio7_votlage: ElectricPotential,
-        /// GPIO8 Voltage result.
-        pub gpio8_votlage: ElectricPotential,
-        /// GPIO9 Voltage result.
-        pub gpio9_votlage: ElectricPotential,
-        /// GPIO10 Voltage result.
-        pub gpio10_votlage: ElectricPotential,
+        /// GPIO voltages.
+        pub gpio_voltages: IndexByGpio<ElectricPotential>,
         /// VMV voltage result.
         pub vmv: ElectricPotential,
         /// VPV voltage result.
@@ -1592,19 +1570,23 @@ pub mod aux {
                 inner: {
                     IndexByChip::from_fn(|chip| {
                         NiceDataChip {
-                            gpio1_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
-                            gpio2_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
-                            gpio3_votlage: ElectricPotential::new::<microvolt>(a.get(chip).data().g3v().as_microvolts() as f32),
+                            gpio_voltages: IndexByGpio::from_fn(|gpio| {
+                                match gpio {
+                                    GpioId::Gpio1 => ElectricPotential::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
+                                    GpioId::Gpio2 => ElectricPotential::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
+                                    GpioId::Gpio3 => ElectricPotential::new::<microvolt>(a.get(chip).data().g3v().as_microvolts() as f32),
 
-                            gpio4_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().g4v().as_microvolts() as f32),
-                            gpio5_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().g5v().as_microvolts() as f32),
-                            gpio6_votlage: ElectricPotential::new::<microvolt>(b.get(chip).data().g6v().as_microvolts() as f32),
+                                    GpioId::Gpio4 => ElectricPotential::new::<microvolt>(b.get(chip).data().g4v().as_microvolts() as f32),
+                                    GpioId::Gpio5 => ElectricPotential::new::<microvolt>(b.get(chip).data().g5v().as_microvolts() as f32),
+                                    GpioId::Gpio6 => ElectricPotential::new::<microvolt>(b.get(chip).data().g6v().as_microvolts() as f32),
 
-                            gpio7_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().g7v().as_microvolts() as f32),
-                            gpio8_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().g8v().as_microvolts() as f32),
-                            gpio9_votlage: ElectricPotential::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
+                                    GpioId::Gpio7 => ElectricPotential::new::<microvolt>(c.get(chip).data().g7v().as_microvolts() as f32),
+                                    GpioId::Gpio8 => ElectricPotential::new::<microvolt>(c.get(chip).data().g8v().as_microvolts() as f32),
+                                    GpioId::Gpio9 => ElectricPotential::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
 
-                            gpio10_votlage: ElectricPotential::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
+                                    GpioId::Gpio10 => ElectricPotential::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
+                                }
+                            }),
                             vmv: ElectricPotential::new::<microvolt>(d.get(chip).data().vmv().as_microvolts() as f32),
                             vpv: ElectricPotential::new::<microvolt>(d.get(chip).data().vpv().as_microvolts() as f32),
                         }
