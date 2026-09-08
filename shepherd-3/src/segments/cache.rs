@@ -469,6 +469,9 @@ pub struct CacheData {
     stata: RegisterCache<StatusA>,
 
     statb: RegisterCache<StatusB>,
+
+    pwma: RegisterCache<PwmA>,
+    pwmb: RegisterCache<PwmB>,
 }
 impl CacheData {
     pub(super) const fn new() -> Self {
@@ -516,6 +519,9 @@ impl CacheData {
             stata: RegisterCache::new(),
 
             statb: RegisterCache::new(),
+
+            pwma: RegisterCache::new(),
+            pwmb: RegisterCache::new(),
         }
     }
 }
@@ -1785,6 +1791,111 @@ pub mod status_b {
         pub fn get_status_b(&self) -> status_b::Raw {
             status_b::Raw {
                 statb: self.statb.data(),
+            }
+        }
+    }
+}
+
+/// Cache for PwmA and PwmB register groups.
+pub mod pwm {
+    use super::*;
+    use super::alias;
+    use adbms6830b::chip::registers::pwm::types::PwmDutyCycleConfig;
+    use crate::segments::chips::cells::{IndexByCell, CellId};
+
+    /// Raw PwmA/B register readings.
+    pub struct Raw {
+        pub pwma: RegisterCacheData<PwmA>,
+        pub pwmb: RegisterCacheData<PwmB>,
+    }
+    impl Raw {
+        /// Tries to make it nice.
+        pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
+    }
+    // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
+    
+    /// "Nice data" for a single chip.
+    /// 
+    /// This leaves out cells 14 through 16 since we only have 13 cells.
+    pub struct NiceDataChip {
+        inner: IndexByCell<PwmDutyCycleConfig>,
+    }
+    impl core::ops::Deref for NiceDataChip {
+        type Target = IndexByCell<PwmDutyCycleConfig>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    /// Represents the raw register readings, but formatted in a more readable way.
+    /// 
+    /// This doesn't contain any metadata about the reading (e.g., PEC errors). So you should
+    /// probably inspect that stuff from the `Raw` readings before converting to this.
+    pub struct NiceData { inner: IndexByChip<NiceDataChip> }
+    impl core::ops::Deref for NiceData {
+        type Target = IndexByChip<NiceDataChip>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+    impl TryFrom<&Raw> for NiceData {
+        type Error = ();
+
+        /// Attempts to convert `Raw` data into a `NiceData`. If any of the registers involved
+        /// in this `NiceData` haven't been read yet, this returns `Err(())`.
+        fn try_from(raw: &Raw) -> Result<Self, Self::Error> {
+            let Some(pwma) = raw.pwma.data() else { return Err(()); };
+            let Some(pwmb) = raw.pwmb.data() else { return Err(()); };
+
+            Ok(Self {
+                inner: {
+                    IndexByChip::from_fn(|chip| {
+                        NiceDataChip {
+                            inner: IndexByCell::from_fn(|cell| {
+                                match cell {
+                                    CellId::Cell1 => pwma.get(chip).data().pwm1(),
+                                    CellId::Cell2 => pwma.get(chip).data().pwm2(),
+                                    CellId::Cell3 => pwma.get(chip).data().pwm3(),
+                                    CellId::Cell4 => pwma.get(chip).data().pwm4(),
+                                    CellId::Cell5 => pwma.get(chip).data().pwm5(),
+                                    CellId::Cell6 => pwma.get(chip).data().pwm6(),
+                                    CellId::Cell7 => pwma.get(chip).data().pwm7(),
+                                    CellId::Cell8 => pwma.get(chip).data().pwm8(),
+                                    CellId::Cell9 => pwma.get(chip).data().pwm9(),
+                                    CellId::Cell10 => pwma.get(chip).data().pwm10(),
+                                    CellId::Cell11 => pwma.get(chip).data().pwm11(),
+                                    CellId::Cell12 => pwma.get(chip).data().pwm12(),
+                                    CellId::Cell13 => pwmb.get(chip).data().pwm13(),
+
+                                }
+                            })
+                        }
+                    })
+                }
+            })
+        }
+    }
+
+    impl CacheData {
+        /// Updates PwmA/B cache with new data.
+        /// 
+        /// ### Returns
+        /// Will return `Ok(())`, or `Err(UpdateError)` if an error occurred. If this returns `Ok(())`, the cached data was updated correctly and can be read now.
+        pub(in crate::segments) async fn update_pwm(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
+
+            self.pwma.update(api).await?;
+            self.pwmb.update(api).await?;
+
+            Ok(())
+        }
+
+        /// Gets the current cached PwmA/B data.
+        pub fn get_pwm(&self) -> pwm::Raw {
+            pwm::Raw {
+                pwma: self.pwma.data(),
+                pwmb: self.pwmb.data(),
             }
         }
     }
