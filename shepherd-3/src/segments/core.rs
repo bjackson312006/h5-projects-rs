@@ -381,6 +381,9 @@ pub mod task {
 
         const ADAX_REGISTERS_MAX_WAITERS: usize = 10;
         pub static ADAX_REGISTERS_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, ADAX_REGISTERS_MAX_WAITERS> = Broadcast::new();
+
+        const PWM_REGISTERS_MAX_WAITERS: usize = 10;
+        pub static PWM_REGISTERS_FRESH_DATA_SIGNAL: Broadcast<ThreadModeRawMutex, PWM_REGISTERS_MAX_WAITERS> = Broadcast::new();
     }
 
     /// A unit of work the segments task runs on a schedule.
@@ -399,6 +402,8 @@ pub mod task {
         /// 
         /// This includes the following registers: Aux, StatusA, StatusB
         AdaxRegisters,
+        /// Updates readback cache for PwmA and PwmB.
+        PwmRegisters,
     }
 
     impl Job {
@@ -516,6 +521,16 @@ pub mod task {
 
                     signals::ADAX_REGISTERS_FRESH_DATA_SIGNAL.signal();
                 }
+
+                Job::PwmRegisters => {
+                    // Update PwmA and PwmB.
+                    if let Err(err) = cache::CACHE.update_pwm(segments.service.api()).await {
+                        defmt::error!("Segments: Inside scheduled PwmRegisters job: Failed to call `update_pwm()`. Error: {}", err);
+                        return;
+                    }
+
+                    signals::PWM_REGISTERS_FRESH_DATA_SIGNAL.signal();
+                }
             }
         }
     }
@@ -556,6 +571,8 @@ pub mod task {
         const SEGMENTS_SNAP_REGISTERS_UPDATE_FREQUENCY_MS: u64 = 300;
         /// Frequency (in ms) at which the segments task should update the cache for the ADAX registers.
         const SEGMENTS_ADAX_REGISTERS_UPDATE_FREQUENCY_MS: u64 = 300;
+        /// Frequency (in ms) at which the segments task should update the cache for the PWM registers.
+        const SEGMENTS_PWM_REGISTERS_UPDATE_FREQUENCY_MS: u64 = 300;
 
         let mut segments = Segments::new(r_linea, r_lineb);
 
@@ -564,6 +581,7 @@ pub mod task {
             Scheduled::every(SEGMENTS_SERVICE_FREQUENCY_MS, Job::Service),
             Scheduled::every(SEGMENTS_SNAP_REGISTERS_UPDATE_FREQUENCY_MS, Job::SnapRegisters),
             Scheduled::every(SEGMENTS_ADAX_REGISTERS_UPDATE_FREQUENCY_MS, Job::AdaxRegisters),
+            Scheduled::every(SEGMENTS_PWM_REGISTERS_UPDATE_FREQUENCY_MS, Job::PwmRegisters),
             Scheduled::every(SEGMENTS_REDUNDANT_AUX_UPDATE_FREQUENCY_MS, Job::RedundantAux),
         ];
 
