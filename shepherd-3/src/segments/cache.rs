@@ -543,6 +543,8 @@ pub mod redundant_aux {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
@@ -657,6 +659,8 @@ pub mod cell_voltages {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
@@ -779,6 +783,8 @@ pub mod average_cell_voltages {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
@@ -901,6 +907,8 @@ pub mod filtered_cell_voltages {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
@@ -1023,6 +1031,8 @@ pub mod s_voltages {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
@@ -1169,6 +1179,8 @@ pub mod status_c {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
 
@@ -1377,6 +1389,8 @@ pub mod status_d {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
 
@@ -1535,6 +1549,8 @@ use super::*;
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
@@ -1644,6 +1660,8 @@ pub mod status_a {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
@@ -1725,6 +1743,8 @@ pub mod status_b {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
@@ -1810,6 +1830,8 @@ pub mod pwm {
     }
     impl Raw {
         /// Tries to make it nice.
+        /// 
+        /// If no data has been read to that cache yet, this will return `Err(())`.
         pub fn try_nice(&self) -> Result<NiceData, ()> { NiceData::try_from(self) }
     }
     // ^^ note: this struct is just meant to be a nice helper for formatting returned data. the `CacheData` struct is still meant to directly hold these registers itself
