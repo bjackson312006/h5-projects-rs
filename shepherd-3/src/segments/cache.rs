@@ -30,6 +30,10 @@ pub(super) static CACHE: CacheData = CacheData::new();
 #[derive(Clone, Copy, Debug)]
 #[derive(defmt::Format)]
 pub enum UpdateError {
+    /// Error occurred while trying to run the UNSNAP command.
+    UnsnapError(Error<SpiError>),
+    /// Error occurred while trying to run the SNAP command.
+    SnapError(Error<SpiError>),
     /// Error occurred while trying to clear flags after reading them in an update call.
     ClearFlagsError(Error<SpiError>),
     /// Error occurred while polling a conversion completion (possibly via a ...autoconvert() function).
