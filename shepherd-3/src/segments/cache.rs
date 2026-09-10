@@ -533,7 +533,7 @@ impl CacheData {
 /// Register groups RedundantAuxillaryA through D.
 pub mod redundant_aux {
     use super::*;
-    use crate::units::ElectricPotential;
+    use crate::units::Voltage;
     use uom::si::{electric_potential::microvolt};
     use super::alias;
     use crate::segments::chips::gpios::{GpioId, IndexByGpio};
@@ -555,10 +555,10 @@ pub mod redundant_aux {
     
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
-        inner: IndexByGpio<ElectricPotential>,
+        inner: IndexByGpio<Voltage>,
     }
     impl core::ops::Deref for NiceDataChip {
-        type Target = IndexByGpio<ElectricPotential>;
+        type Target = IndexByGpio<Voltage>;
 
         fn deref(&self) -> &Self::Target {
             &self.inner
@@ -594,19 +594,19 @@ pub mod redundant_aux {
                         NiceDataChip {
                             inner: IndexByGpio::from_fn(|gpio| {
                                 match gpio {
-                                    GpioId::Gpio1 => ElectricPotential::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
-                                    GpioId::Gpio2 => ElectricPotential::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
-                                    GpioId::Gpio3 => ElectricPotential::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
+                                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().r_g1v().as_microvolts() as f32),
+                                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().r_g2v().as_microvolts() as f32),
+                                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().r_g3v().as_microvolts() as f32),
 
-                                    GpioId::Gpio4 => ElectricPotential::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
-                                    GpioId::Gpio5 => ElectricPotential::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
-                                    GpioId::Gpio6 => ElectricPotential::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
+                                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().r_g4v().as_microvolts() as f32),
+                                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().r_g5v().as_microvolts() as f32),
+                                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().r_g6v().as_microvolts() as f32),
 
-                                    GpioId::Gpio7 => ElectricPotential::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
-                                    GpioId::Gpio8 => ElectricPotential::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
-                                    GpioId::Gpio9 => ElectricPotential::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
+                                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().r_g7v().as_microvolts() as f32),
+                                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().r_g8v().as_microvolts() as f32),
+                                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().r_g9v().as_microvolts() as f32),
                                     
-                                    GpioId::Gpio10 => ElectricPotential::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
+                                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().r_g10v().as_microvolts() as f32),
                                 }
                             })
                         }
@@ -648,7 +648,7 @@ pub mod redundant_aux {
 /// Register groups CellVoltages A through E (no F because we only use 13 cells).
 pub mod cell_voltages {
     use super::*;
-    use crate::units::ElectricPotential;
+    use crate::units::Voltage;
     use uom::si::{electric_potential::microvolt};
     use super::alias;
     use crate::segments::chips::cells::{IndexByCell, CellId};
@@ -671,10 +671,10 @@ pub mod cell_voltages {
     
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
-        inner: IndexByCell<ElectricPotential>,
+        inner: IndexByCell<Voltage>,
     }
     impl core::ops::Deref for NiceDataChip {
-        type Target = IndexByCell<ElectricPotential>;
+        type Target = IndexByCell<Voltage>;
 
         fn deref(&self) -> &Self::Target {
             &self.inner
@@ -711,23 +711,23 @@ pub mod cell_voltages {
                         NiceDataChip {
                             inner: IndexByCell::from_fn(|cell| {
                                 match cell {
-                                    CellId::Cell1 => ElectricPotential::new::<microvolt>(a.get(chip).data().c1v().as_microvolts() as f32),
-                                    CellId::Cell2 => ElectricPotential::new::<microvolt>(a.get(chip).data().c2v().as_microvolts() as f32),
-                                    CellId::Cell3 => ElectricPotential::new::<microvolt>(a.get(chip).data().c3v().as_microvolts() as f32),
+                                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().c1v().as_microvolts() as f32),
+                                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().c2v().as_microvolts() as f32),
+                                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().c3v().as_microvolts() as f32),
 
-                                    CellId::Cell4 => ElectricPotential::new::<microvolt>(b.get(chip).data().c4v().as_microvolts() as f32),
-                                    CellId::Cell5 => ElectricPotential::new::<microvolt>(b.get(chip).data().c5v().as_microvolts() as f32),
-                                    CellId::Cell6 => ElectricPotential::new::<microvolt>(b.get(chip).data().c6v().as_microvolts() as f32),
+                                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().c4v().as_microvolts() as f32),
+                                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().c5v().as_microvolts() as f32),
+                                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().c6v().as_microvolts() as f32),
 
-                                    CellId::Cell7 => ElectricPotential::new::<microvolt>(c.get(chip).data().c7v().as_microvolts() as f32),
-                                    CellId::Cell8 => ElectricPotential::new::<microvolt>(c.get(chip).data().c8v().as_microvolts() as f32),
-                                    CellId::Cell9 => ElectricPotential::new::<microvolt>(c.get(chip).data().c9v().as_microvolts() as f32),
+                                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().c7v().as_microvolts() as f32),
+                                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().c8v().as_microvolts() as f32),
+                                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().c9v().as_microvolts() as f32),
 
-                                    CellId::Cell10 => ElectricPotential::new::<microvolt>(d.get(chip).data().c10v().as_microvolts() as f32),
-                                    CellId::Cell11 => ElectricPotential::new::<microvolt>(d.get(chip).data().c11v().as_microvolts() as f32),
-                                    CellId::Cell12 => ElectricPotential::new::<microvolt>(d.get(chip).data().c12v().as_microvolts() as f32),
+                                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().c10v().as_microvolts() as f32),
+                                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().c11v().as_microvolts() as f32),
+                                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().c12v().as_microvolts() as f32),
 
-                                    CellId::Cell13 => ElectricPotential::new::<microvolt>(e.get(chip).data().c13v().as_microvolts() as f32),
+                                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().c13v().as_microvolts() as f32),
                                 }
                             })
                         }
@@ -772,7 +772,7 @@ pub mod cell_voltages {
 /// Register groups AverageCellVoltages A through E (no F because we only use 13 cells).
 pub mod average_cell_voltages {
     use super::*;
-    use crate::units::ElectricPotential;
+    use crate::units::Voltage;
     use uom::si::{electric_potential::microvolt};
     use super::alias;
     use crate::segments::chips::cells::{IndexByCell, CellId};
@@ -795,10 +795,10 @@ pub mod average_cell_voltages {
     
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
-        inner: IndexByCell<ElectricPotential>,
+        inner: IndexByCell<Voltage>,
     }
     impl core::ops::Deref for NiceDataChip {
-        type Target = IndexByCell<ElectricPotential>;
+        type Target = IndexByCell<Voltage>;
 
         fn deref(&self) -> &Self::Target {
             &self.inner
@@ -835,23 +835,23 @@ pub mod average_cell_voltages {
                         NiceDataChip {
                             inner: IndexByCell::from_fn(|cell| {
                                 match cell {
-                                    CellId::Cell1 => ElectricPotential::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
-                                    CellId::Cell2 => ElectricPotential::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
-                                    CellId::Cell3 => ElectricPotential::new::<microvolt>(a.get(chip).data().ac3v().as_microvolts() as f32),
+                                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().ac1v().as_microvolts() as f32),
+                                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().ac2v().as_microvolts() as f32),
+                                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().ac3v().as_microvolts() as f32),
 
-                                    CellId::Cell4 => ElectricPotential::new::<microvolt>(b.get(chip).data().ac4v().as_microvolts() as f32),
-                                    CellId::Cell5 => ElectricPotential::new::<microvolt>(b.get(chip).data().ac5v().as_microvolts() as f32),
-                                    CellId::Cell6 => ElectricPotential::new::<microvolt>(b.get(chip).data().ac6v().as_microvolts() as f32),
+                                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().ac4v().as_microvolts() as f32),
+                                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().ac5v().as_microvolts() as f32),
+                                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().ac6v().as_microvolts() as f32),
 
-                                    CellId::Cell7 => ElectricPotential::new::<microvolt>(c.get(chip).data().ac7v().as_microvolts() as f32),
-                                    CellId::Cell8 => ElectricPotential::new::<microvolt>(c.get(chip).data().ac8v().as_microvolts() as f32),
-                                    CellId::Cell9 => ElectricPotential::new::<microvolt>(c.get(chip).data().ac9v().as_microvolts() as f32),
+                                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().ac7v().as_microvolts() as f32),
+                                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().ac8v().as_microvolts() as f32),
+                                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().ac9v().as_microvolts() as f32),
 
-                                    CellId::Cell10 => ElectricPotential::new::<microvolt>(d.get(chip).data().ac10v().as_microvolts() as f32),
-                                    CellId::Cell11 => ElectricPotential::new::<microvolt>(d.get(chip).data().ac11v().as_microvolts() as f32),
-                                    CellId::Cell12 => ElectricPotential::new::<microvolt>(d.get(chip).data().ac12v().as_microvolts() as f32),
+                                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().ac10v().as_microvolts() as f32),
+                                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().ac11v().as_microvolts() as f32),
+                                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().ac12v().as_microvolts() as f32),
 
-                                    CellId::Cell13 => ElectricPotential::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
+                                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().ac13v().as_microvolts() as f32),
                                 }
                             })
                         }
@@ -896,7 +896,7 @@ pub mod average_cell_voltages {
 /// Register groups FilteredCellVoltages A through E (no F because we only use 13 cells).
 pub mod filtered_cell_voltages {
     use super::*;
-    use crate::units::ElectricPotential;
+    use crate::units::Voltage;
     use uom::si::{electric_potential::microvolt};
     use super::alias;
     use crate::segments::chips::cells::{IndexByCell, CellId};
@@ -919,10 +919,10 @@ pub mod filtered_cell_voltages {
     
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
-        inner: IndexByCell<ElectricPotential>,
+        inner: IndexByCell<Voltage>,
     }
     impl core::ops::Deref for NiceDataChip {
-        type Target = IndexByCell<ElectricPotential>;
+        type Target = IndexByCell<Voltage>;
 
         fn deref(&self) -> &Self::Target {
             &self.inner
@@ -959,23 +959,23 @@ pub mod filtered_cell_voltages {
                         NiceDataChip {
                             inner: IndexByCell::from_fn(|cell| {
                                 match cell {
-                                    CellId::Cell1 => ElectricPotential::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
-                                    CellId::Cell2 => ElectricPotential::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
-                                    CellId::Cell3 => ElectricPotential::new::<microvolt>(a.get(chip).data().fc3v().as_microvolts() as f32),
+                                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().fc1v().as_microvolts() as f32),
+                                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().fc2v().as_microvolts() as f32),
+                                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().fc3v().as_microvolts() as f32),
 
-                                    CellId::Cell4 => ElectricPotential::new::<microvolt>(b.get(chip).data().fc4v().as_microvolts() as f32),
-                                    CellId::Cell5 => ElectricPotential::new::<microvolt>(b.get(chip).data().fc5v().as_microvolts() as f32),
-                                    CellId::Cell6 => ElectricPotential::new::<microvolt>(b.get(chip).data().fc6v().as_microvolts() as f32),
+                                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().fc4v().as_microvolts() as f32),
+                                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().fc5v().as_microvolts() as f32),
+                                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().fc6v().as_microvolts() as f32),
 
-                                    CellId::Cell7 => ElectricPotential::new::<microvolt>(c.get(chip).data().fc7v().as_microvolts() as f32),
-                                    CellId::Cell8 => ElectricPotential::new::<microvolt>(c.get(chip).data().fc8v().as_microvolts() as f32),
-                                    CellId::Cell9 => ElectricPotential::new::<microvolt>(c.get(chip).data().fc9v().as_microvolts() as f32),
+                                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().fc7v().as_microvolts() as f32),
+                                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().fc8v().as_microvolts() as f32),
+                                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().fc9v().as_microvolts() as f32),
 
-                                    CellId::Cell10 => ElectricPotential::new::<microvolt>(d.get(chip).data().fc10v().as_microvolts() as f32),
-                                    CellId::Cell11 => ElectricPotential::new::<microvolt>(d.get(chip).data().fc11v().as_microvolts() as f32),
-                                    CellId::Cell12 => ElectricPotential::new::<microvolt>(d.get(chip).data().fc12v().as_microvolts() as f32),
+                                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().fc10v().as_microvolts() as f32),
+                                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().fc11v().as_microvolts() as f32),
+                                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().fc12v().as_microvolts() as f32),
 
-                                    CellId::Cell13 => ElectricPotential::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
+                                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().fc13v().as_microvolts() as f32),
                                 }
                             })
                         }
@@ -1020,7 +1020,7 @@ pub mod filtered_cell_voltages {
 /// Register groups SVoltages A through E (no F because we only use 13 cells).
 pub mod s_voltages {
     use super::*;
-    use crate::units::ElectricPotential;
+    use crate::units::Voltage;
     use uom::si::{electric_potential::microvolt};
     use super::alias;
     use crate::segments::chips::cells::{IndexByCell, CellId};
@@ -1043,10 +1043,10 @@ pub mod s_voltages {
     
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
-        inner: IndexByCell<ElectricPotential>,
+        inner: IndexByCell<Voltage>,
     }
     impl core::ops::Deref for NiceDataChip {
-        type Target = IndexByCell<ElectricPotential>;
+        type Target = IndexByCell<Voltage>;
 
         fn deref(&self) -> &Self::Target {
             &self.inner
@@ -1083,23 +1083,23 @@ pub mod s_voltages {
                         NiceDataChip {
                             inner: IndexByCell::from_fn(|cell| {
                                 match cell {
-                                    CellId::Cell1 => ElectricPotential::new::<microvolt>(a.get(chip).data().s1v().as_microvolts() as f32),
-                                    CellId::Cell2 => ElectricPotential::new::<microvolt>(a.get(chip).data().s2v().as_microvolts() as f32),
-                                    CellId::Cell3 => ElectricPotential::new::<microvolt>(a.get(chip).data().s3v().as_microvolts() as f32),
+                                    CellId::Cell1 => Voltage::new::<microvolt>(a.get(chip).data().s1v().as_microvolts() as f32),
+                                    CellId::Cell2 => Voltage::new::<microvolt>(a.get(chip).data().s2v().as_microvolts() as f32),
+                                    CellId::Cell3 => Voltage::new::<microvolt>(a.get(chip).data().s3v().as_microvolts() as f32),
 
-                                    CellId::Cell4 => ElectricPotential::new::<microvolt>(b.get(chip).data().s4v().as_microvolts() as f32),
-                                    CellId::Cell5 => ElectricPotential::new::<microvolt>(b.get(chip).data().s5v().as_microvolts() as f32),
-                                    CellId::Cell6 => ElectricPotential::new::<microvolt>(b.get(chip).data().s6v().as_microvolts() as f32),
+                                    CellId::Cell4 => Voltage::new::<microvolt>(b.get(chip).data().s4v().as_microvolts() as f32),
+                                    CellId::Cell5 => Voltage::new::<microvolt>(b.get(chip).data().s5v().as_microvolts() as f32),
+                                    CellId::Cell6 => Voltage::new::<microvolt>(b.get(chip).data().s6v().as_microvolts() as f32),
 
-                                    CellId::Cell7 => ElectricPotential::new::<microvolt>(c.get(chip).data().s7v().as_microvolts() as f32),
-                                    CellId::Cell8 => ElectricPotential::new::<microvolt>(c.get(chip).data().s8v().as_microvolts() as f32),
-                                    CellId::Cell9 => ElectricPotential::new::<microvolt>(c.get(chip).data().s9v().as_microvolts() as f32),
+                                    CellId::Cell7 => Voltage::new::<microvolt>(c.get(chip).data().s7v().as_microvolts() as f32),
+                                    CellId::Cell8 => Voltage::new::<microvolt>(c.get(chip).data().s8v().as_microvolts() as f32),
+                                    CellId::Cell9 => Voltage::new::<microvolt>(c.get(chip).data().s9v().as_microvolts() as f32),
 
-                                    CellId::Cell10 => ElectricPotential::new::<microvolt>(d.get(chip).data().s10v().as_microvolts() as f32),
-                                    CellId::Cell11 => ElectricPotential::new::<microvolt>(d.get(chip).data().s11v().as_microvolts() as f32),
-                                    CellId::Cell12 => ElectricPotential::new::<microvolt>(d.get(chip).data().s12v().as_microvolts() as f32),
+                                    CellId::Cell10 => Voltage::new::<microvolt>(d.get(chip).data().s10v().as_microvolts() as f32),
+                                    CellId::Cell11 => Voltage::new::<microvolt>(d.get(chip).data().s11v().as_microvolts() as f32),
+                                    CellId::Cell12 => Voltage::new::<microvolt>(d.get(chip).data().s12v().as_microvolts() as f32),
 
-                                    CellId::Cell13 => ElectricPotential::new::<microvolt>(e.get(chip).data().s13v().as_microvolts() as f32),
+                                    CellId::Cell13 => Voltage::new::<microvolt>(e.get(chip).data().s13v().as_microvolts() as f32),
                                 }
                             })
                         }
@@ -1539,7 +1539,7 @@ pub mod aux {
     use core::ops::Index;
 
 use super::*;
-    use crate::units::ElectricPotential;
+    use crate::units::Voltage;
     use uom::si::{electric_potential::microvolt};
     use super::alias;
     use crate::segments::chips::gpios::{IndexByGpio, GpioId};
@@ -1562,11 +1562,11 @@ use super::*;
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         /// GPIO voltages.
-        pub gpio_voltages: IndexByGpio<ElectricPotential>,
+        pub gpio_voltages: IndexByGpio<Voltage>,
         /// VMV voltage result.
-        pub vmv: ElectricPotential,
+        pub vmv: Voltage,
         /// VPV voltage result.
-        pub vpv: ElectricPotential,
+        pub vpv: Voltage,
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
@@ -1598,23 +1598,23 @@ use super::*;
                         NiceDataChip {
                             gpio_voltages: IndexByGpio::from_fn(|gpio| {
                                 match gpio {
-                                    GpioId::Gpio1 => ElectricPotential::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
-                                    GpioId::Gpio2 => ElectricPotential::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
-                                    GpioId::Gpio3 => ElectricPotential::new::<microvolt>(a.get(chip).data().g3v().as_microvolts() as f32),
+                                    GpioId::Gpio1 => Voltage::new::<microvolt>(a.get(chip).data().g1v().as_microvolts() as f32),
+                                    GpioId::Gpio2 => Voltage::new::<microvolt>(a.get(chip).data().g2v().as_microvolts() as f32),
+                                    GpioId::Gpio3 => Voltage::new::<microvolt>(a.get(chip).data().g3v().as_microvolts() as f32),
 
-                                    GpioId::Gpio4 => ElectricPotential::new::<microvolt>(b.get(chip).data().g4v().as_microvolts() as f32),
-                                    GpioId::Gpio5 => ElectricPotential::new::<microvolt>(b.get(chip).data().g5v().as_microvolts() as f32),
-                                    GpioId::Gpio6 => ElectricPotential::new::<microvolt>(b.get(chip).data().g6v().as_microvolts() as f32),
+                                    GpioId::Gpio4 => Voltage::new::<microvolt>(b.get(chip).data().g4v().as_microvolts() as f32),
+                                    GpioId::Gpio5 => Voltage::new::<microvolt>(b.get(chip).data().g5v().as_microvolts() as f32),
+                                    GpioId::Gpio6 => Voltage::new::<microvolt>(b.get(chip).data().g6v().as_microvolts() as f32),
 
-                                    GpioId::Gpio7 => ElectricPotential::new::<microvolt>(c.get(chip).data().g7v().as_microvolts() as f32),
-                                    GpioId::Gpio8 => ElectricPotential::new::<microvolt>(c.get(chip).data().g8v().as_microvolts() as f32),
-                                    GpioId::Gpio9 => ElectricPotential::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
+                                    GpioId::Gpio7 => Voltage::new::<microvolt>(c.get(chip).data().g7v().as_microvolts() as f32),
+                                    GpioId::Gpio8 => Voltage::new::<microvolt>(c.get(chip).data().g8v().as_microvolts() as f32),
+                                    GpioId::Gpio9 => Voltage::new::<microvolt>(c.get(chip).data().g9v().as_microvolts() as f32),
 
-                                    GpioId::Gpio10 => ElectricPotential::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
+                                    GpioId::Gpio10 => Voltage::new::<microvolt>(d.get(chip).data().g10v().as_microvolts() as f32),
                                 }
                             }),
-                            vmv: ElectricPotential::new::<microvolt>(d.get(chip).data().vmv().as_microvolts() as f32),
-                            vpv: ElectricPotential::new::<microvolt>(d.get(chip).data().vpv().as_microvolts() as f32),
+                            vmv: Voltage::new::<microvolt>(d.get(chip).data().vmv().as_microvolts() as f32),
+                            vpv: Voltage::new::<microvolt>(d.get(chip).data().vpv().as_microvolts() as f32),
                         }
                     })
                 }
@@ -1654,7 +1654,7 @@ use super::*;
 /// StatusA register group.
 pub mod status_a {
     use super::*;
-    use crate::units::{ElectricPotential, Temperature, microcelcius};
+    use crate::units::{Voltage, Temperature, microcelcius};
     use uom::si::{electric_potential::microvolt};
     use super::alias;
 
@@ -1673,7 +1673,7 @@ pub mod status_a {
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         /// Second reference voltage.
-        pub vref2: ElectricPotential,
+        pub vref2: Voltage,
         /// Internal die temperature.
         pub itmp: Temperature,
     }
@@ -1702,7 +1702,7 @@ pub mod status_a {
                 inner: {
                     IndexByChip::from_fn(|chip| {
                         NiceDataChip {
-                            vref2: ElectricPotential::new::<microvolt>(stata.get(chip).data().vref2().as_microvolts() as f32),
+                            vref2: Voltage::new::<microvolt>(stata.get(chip).data().vref2().as_microvolts() as f32),
                             itmp: Temperature::new::<microcelcius>(stata.get(chip).data().itmp().as_microcelsius() as f32),
                         }
                     })
@@ -1737,7 +1737,7 @@ pub mod status_a {
 /// StatusB register group.
 pub mod status_b {
     use super::*;
-    use crate::units::{ElectricPotential};
+    use crate::units::{Voltage};
     use uom::si::{electric_potential::microvolt};
     use super::alias;
 
@@ -1756,11 +1756,11 @@ pub mod status_b {
     /// "Nice data" for a single chip.
     pub struct NiceDataChip {
         /// Digital power supply voltage.
-        pub vd: ElectricPotential,
+        pub vd: Voltage,
         /// Analog power supply voltage.
-        pub va: ElectricPotential,
+        pub va: Voltage,
         /// VREF2 voltage across resistor.
-        pub vres: ElectricPotential,
+        pub vres: Voltage,
     }
 
     /// Represents the raw register readings, but formatted in a more readable way.
@@ -1787,9 +1787,9 @@ pub mod status_b {
                 inner: {
                     IndexByChip::from_fn(|chip| {
                         NiceDataChip {
-                            vd: ElectricPotential::new::<microvolt>(statb.get(chip).data().vd().as_microvolts() as f32),
-                            va: ElectricPotential::new::<microvolt>(statb.get(chip).data().va().as_microvolts() as f32),
-                            vres: ElectricPotential::new::<microvolt>(statb.get(chip).data().vres().as_microvolts() as f32),
+                            vd: Voltage::new::<microvolt>(statb.get(chip).data().vd().as_microvolts() as f32),
+                            va: Voltage::new::<microvolt>(statb.get(chip).data().va().as_microvolts() as f32),
+                            vres: Voltage::new::<microvolt>(statb.get(chip).data().vres().as_microvolts() as f32),
                         }
                     })
                 }

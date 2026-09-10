@@ -258,7 +258,7 @@ impl<'borrow, T> IntoIterator for &'borrow mut IndexByChip<T> {
 pub mod gpios {
     use super::cells::{CellId, IndexByCell};
     use strum::{EnumCount, VariantArray};
-    use crate::units::{Resistance, Temperature, ElectricPotential};
+    use crate::units::{Resistance, Temperature, Voltage};
 
     // u_Note: this mapping is based on TSECU-Shepherd. this should probably be checked as its possible i am not reading the code correctly
     // anyway, each ADBMS6830B chip has 10 gpios. at least for 25A, if my understanding is correct, the board is set up so each of these GPIOs is tied to a thermistor.
@@ -337,7 +337,7 @@ pub mod gpios {
     /// 
     /// ### Notes
     /// This function was taken from the TSECU-Shepherd C code (analyzer.c).
-    pub fn calc_cell_temp(voltage: &ElectricPotential) -> Temperature {
+    pub fn calc_cell_temp(voltage: &Voltage) -> Temperature {
         use uom::si::electric_potential::volt;
         use uom::si::electrical_resistance::ohm;
 
@@ -363,8 +363,8 @@ pub mod gpios {
         /// Third on-board temperature.
         pub on_board_temp_3: Temperature,
     }
-    impl From<IndexByGpio<ElectricPotential>> for ThermistorTemperatures {
-        fn from(gpios: IndexByGpio<ElectricPotential>) -> Self {
+    impl From<IndexByGpio<Voltage>> for ThermistorTemperatures {
+        fn from(gpios: IndexByGpio<Voltage>) -> Self {
             Self {
                 cell_temperatures: IndexByCell::from_fn(|cell| {
                     match cell {
@@ -395,7 +395,7 @@ pub mod gpios {
             }
         }
     }
-    impl IndexByGpio<ElectricPotential> {
+    impl IndexByGpio<Voltage> {
         /// Converts GPIO voltages to temperatures.
         pub fn to_temps(&self) -> ThermistorTemperatures {
             ThermistorTemperatures::from(*self)

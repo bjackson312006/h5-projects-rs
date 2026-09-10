@@ -1,7 +1,9 @@
 //! Type aliases for units from the `uom` crate used by this project.
 
-/// Voltage and such
-pub type ElectricPotential = uom::si::f32::ElectricPotential;
+/// Voltage!
+/// 
+/// Technically this is Electric Potential but who even calls it that
+pub type Voltage = uom::si::f32::ElectricPotential;
 
 /// Temperature!
 pub type Temperature = uom::si::f32::ThermodynamicTemperature;
