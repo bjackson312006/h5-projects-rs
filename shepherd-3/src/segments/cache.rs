@@ -921,6 +921,9 @@ pub mod filtered_cell_voltages {
     pub struct NiceDataChip {
         inner: IndexByCell<Voltage>,
     }
+    impl NiceDataChip {
+        pub const fn cells(&self) -> &IndexByCell<Voltage> { &self.inner }
+    }
     impl core::ops::Deref for NiceDataChip {
         type Target = IndexByCell<Voltage>;
 

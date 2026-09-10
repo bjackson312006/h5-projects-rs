@@ -416,7 +416,7 @@ dependencies = [
 [[package]]
 name = "defmt-monitor"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/defmt-monitor.git?branch=main#40a457c6f6f2a76ad57d704e21b073e3bed1313d"
+source = "git+https://github.com/bjackson312006/defmt-monitor.git?branch=main#7f179f91741558cda900c09511c6a96fb4266481"
 dependencies = [
  "defmt-monitor-macros",
 ]
@@ -424,7 +424,7 @@ dependencies = [
 [[package]]
 name = "defmt-monitor-macros"
 version = "0.1.0"
-source = "git+https://github.com/bjackson312006/defmt-monitor.git?branch=main#40a457c6f6f2a76ad57d704e21b073e3bed1313d"
+source = "git+https://github.com/bjackson312006/defmt-monitor.git?branch=main#7f179f91741558cda900c09511c6a96fb4266481"
 dependencies = [
  "proc-macro2",
  "quote",

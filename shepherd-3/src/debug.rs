@@ -1,2 +1,122 @@
 //! Debug data for segments.
 
+use adbms6830b::chip::commands::filtered_cell_voltage;
+use cangen::ToCanFrame;
+use strum::VariantArray;
+use uom::si::angle::degree;
+
+use crate::segments;
+
+/// Task that sends out debug segments data.
+/// 
+/// This is probably (?) just going to be a temporary thing until we get more organized (i.e., we may remove this task or rework it as the overall structure of shepherd-3 starts coming together).
+/// For now, this is just meant to test out the segments subsystem and give an example of reading data from it.
+#[embassy_executor::task]
+pub async fn segments_debug() {
+    use segments::{
+        SEGMENTS_FRESH_DATA_SIGNAL,
+        ChipId, ChipKind, CellId, IndexByChip, IndexByCell, IndexByGpio,
+    };
+    use crate::units::{degree_celsius, volt, Temperature, Voltage};
+
+    // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
+    let mut subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
+
+    loop {
+        // Run one loop of this task every time new Segments data arrives.
+        subscription.wait().await;
+
+        // Get "raw" cache readings.
+        let redundant_aux_raw = segments::cache().get_redundant_aux();
+        let filtered_cell_voltages_raw = segments::cache().get_filtered_cell_voltages();
+        let cell_voltages_raw = segments::cache().get_cell_voltages();
+        let pwm_raw = segments::cache().get_pwm();
+        let status_c_raw = segments::cache().get_status_c();
+        let s_voltages_raw = segments::cache().get_s_voltages();
+
+        // u_TODO - should probably inspect the PEC status and other metadata before transforming into NiceData, but i don't think TSECU-Shepherd does that so for now this is probably fine
+
+        // Convert "raw" readings to NiceData. When `try_nice()` fails, it means that the cache hasn't been updated yet (since starting up), so we skip for now and go back to top of the loop.
+        let Ok(redundant_aux) = redundant_aux_raw.try_nice() else { continue; };
+        let Ok(filtered_cell_voltages) = filtered_cell_voltages_raw.try_nice() else {continue; };
+        let Ok(_cell_voltages) = cell_voltages_raw.try_nice() else { continue; };
+        let Ok(pwm) = pwm_raw.try_nice() else { continue; };
+        let Ok(status_c) = status_c_raw.try_nice() else { continue; };
+        let Ok(_s_voltages) = s_voltages_raw.try_nice() else { continue; };
+
+        // Iterate through every chip and send data over CAN.
+        '_can: {
+            for chip in ChipId::iter() {
+                let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
+                let volts = filtered_cell_voltages.chip(chip); // u_TODO - if charging, we use cell_voltages, if not charging, we use filtered_cell_voltages. This is what TSECU-Shepherd did. but there's no charging state rn so for now who cares
+                let pwm = pwm.chip(chip);
+                let cvs = status_c.chip(chip).cell_channel_comparison_faults;
+
+                match chip.kind() {
+                    ChipKind::Alpha => {
+                        for (cell_a, cell_b) in CellId::iter_pairs() {
+                            let frame = cangen::AlphaCellDataDebug::new()
+                                // Cell A is used for the therms here because cell_a and cell_b share the same thermistor
+                                .with_therm(temps.cell(cell_a).get::<degree_celsius>())
+                                .with_chip_id(chip.segment().as_u8())
+
+                                // Cell A data.
+                                .with_voltage_a(volts.cell(cell_a).get::<volt>())
+                                .with_cell_a(cell_a.as_u8())
+                                .with_discharging_a(pwm.cell(cell_a).is_balancing())
+                                .with_cvs_a(cvs.cell(cell_a).is_set())
+                                .with_ow_a(false) // u_TODO - we don't calculate this yet, so for now, just set it to false
+
+                                // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
+                                .with_voltage_b(cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32))
+                                .with_cell_b(cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14))
+                                .with_discharging_b(cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false))
+                                .with_cvs_b(cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false))
+                                .with_ow_b(false); // u_TODO - we don't calculate this yet, so for now, just set it to false
+                            
+                            crate::can::send(frame.to_can_frame()).await;
+                        }
+                    },
+                    ChipKind::Beta => {
+                        for (cell_a, cell_b) in CellId::iter_pairs() {
+                            let frame = cangen::BetaCellDataDebug::new()
+                                // Cell A is used for the therms here because cell_a and cell_b share the same thermistor
+                                .with_therm(temps.cell(cell_a).get::<degree_celsius>())
+                                .with_chip_id(chip.segment().as_u8())
+
+                                // Cell A data.
+                                .with_voltage_a(volts.cell(cell_a).get::<volt>())
+                                .with_cell_a(cell_a.as_u8())
+                                .with_discharging_a(pwm.cell(cell_a).is_balancing())
+                                .with_cvs_a(cvs.cell(cell_a).is_set())
+                                .with_ow_a(false) // u_TODO - we don't calculate this yet, so for now, just set it to false
+
+                                // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
+                                .with_voltage_b(cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(100_f32))
+                                .with_cell_b(cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(100))
+                                .with_discharging_b(cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false))
+                                .with_cvs_a(cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false))
+                                .with_ow_a(false); // u_TODO - we don't calculate this yet, so for now, just set it to false
+
+                            crate::can::send(frame.to_can_frame()).await;
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(defmt_monitor)]
+        '_defmt_monitor: {
+            for chip in ChipId::iter() {
+                let volts = filtered_cell_voltages.chip(chip);
+                let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
+                for cell in CellId::iter() {
+                    defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Cell{=u8}/Voltage", chip.as_u8(), cell.as_u8()], desc = "Cell voltage, in volts.", "{=f32}", volts.cell(cell).get::<volt>());
+                    defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Cell{=u8}/Temperature", chip.as_u8(), cell.as_u8()], desc = "Cell temperautre, in celsius.", "{=f32}", temps.cell(cell).get::<degree_celsius>());
+                    defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Segment", chip.as_u8()], desc = "What segment this chip is on (0 through 4).", "{=u8}", chip.segment().as_u8());
+                    defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Kind", chip.as_u8()], desc = "If this chip is Alpha or Beta.", "{}", chip.kind());
+                }
+            }
+        }
+    }
+}

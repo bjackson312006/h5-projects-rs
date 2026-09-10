@@ -1,5 +1,8 @@
 //! Type aliases for units from the `uom` crate used by this project.
 
+pub use uom::si::thermodynamic_temperature::degree_celsius;
+pub use uom::si::electric_potential::volt;
+
 /// Voltage!
 /// 
 /// Technically this is Electric Potential but who even calls it that

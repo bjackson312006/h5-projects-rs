@@ -1,16 +1,16 @@
-use strum::{VariantArray, EnumCount};
+use strum::{VariantArray, EnumCount, IntoEnumIterator};
 
 use super::core::alias;
 
 pub mod cells {
-    use strum::{VariantArray, EnumCount};
+    use strum::{VariantArray, EnumCount, IntoEnumIterator};
 
     /// How many cells are on each chip in our setup.
     pub const ADBMS6830B_NUM_CELLS_PER_CHIP: usize = CellId::COUNT;
 
     /// ID for each cell per ADBMS6830B chip. There are 13 cells per chip.
     #[repr(usize)]
-    #[derive(strum::EnumCount, strum::VariantArray)]
+    #[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[derive(defmt::Format)]
     pub enum CellId {
@@ -27,6 +27,32 @@ pub mod cells {
         Cell11,
         Cell12,
         Cell13,
+    }
+    impl CellId {
+        /// Lets you iterate over each cell.
+        pub fn iter() -> <Self as IntoEnumIterator>::Iterator {
+            <Self as IntoEnumIterator>::iter()
+        }
+
+        /// This `CellId` represented as a raw u8.
+        pub fn as_u8(&self) -> u8 { 
+            *self as u8 
+        }
+
+        /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
+        /// of two.
+        /// 
+        /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
+        pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)> where Self: Copy, {
+            Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
+        }
+
+        /// Returns the variant directly after `&self`. If `&self` is the last variant, this returns `None`.
+        pub fn next(&self) -> Option<Self> {
+            let i: usize = *self as usize;
+            let next = i + 1;
+            Self::from_repr(next)
+        }
     }
 
     /// Like IndexByChip but for cells
@@ -47,6 +73,13 @@ pub mod cells {
         pub const fn get(&self, cell: CellId) -> &T {
             let i: usize = cell as usize;
             &self.data[i]
+        }
+
+        /// Retrives the data for `cell`.
+        /// 
+        /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
+        pub const fn cell(&self, cell: CellId) -> &T {
+            self.get(cell)
         }
 
         pub fn from_fn(mut f: impl FnMut(CellId) -> T) -> Self {
@@ -98,7 +131,7 @@ pub const ADBMS6830B_NUM_CHIPS: usize = const { ChipId::COUNT };
 
 /// ID for each ADBMS6830 chip.
 #[repr(usize)]
-#[derive(strum::EnumCount, strum::VariantArray)]
+#[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[derive(defmt::Format)]
 pub enum ChipId {
@@ -124,6 +157,31 @@ pub enum ChipId {
     Chip9
 }
 impl ChipId {
+    /// Lets you iterate over each chip.
+    pub fn iter() -> <Self as IntoEnumIterator>::Iterator {
+        <Self as IntoEnumIterator>::iter()
+    }
+
+    /// This `ChipId` represented as a raw u8.
+    pub fn as_u8(&self) -> u8 { 
+        *self as u8 
+    }
+
+    /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
+    /// of two.
+    /// 
+    /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
+    pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)> where Self: Copy, {
+        Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
+    }
+
+    /// Returns the variant directly after `&self`. If `&self` is the last variant, this returns `None`.
+    pub fn next(&self) -> Option<Self> {
+        let i: usize = *self as usize;
+        let next = i + 1;
+        Self::from_repr(next)
+    }
+
     /// Whether a chip is Alpha or Beta.
     pub const fn kind(&self) -> ChipKind {
         if ((*self as usize) % 2) == 0 {
@@ -162,7 +220,8 @@ impl ChipId {
 
 /// The type of the chip (Alpha or Beta).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(variant_count::VariantCount)]
+#[repr(usize)]
+#[derive(strum::EnumCount, strum::VariantArray, strum::EnumIter)]
 #[derive(defmt::Format)]
 pub enum ChipKind {
     Alpha,
@@ -171,7 +230,8 @@ pub enum ChipKind {
 
 /// ID for each segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(variant_count::VariantCount)]
+#[repr(usize)]
+#[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
 #[derive(defmt::Format)]
 pub enum SegmentId {
     Segment0,
@@ -179,6 +239,32 @@ pub enum SegmentId {
     Segment2,
     Segment3,
     Segment4,
+}
+impl SegmentId {
+    /// Lets you iterate over each segment.
+    pub fn iter() -> <Self as IntoEnumIterator>::Iterator {
+        <Self as IntoEnumIterator>::iter()
+    }
+
+    /// This `SegmentId` represented as a raw u8.
+    pub fn as_u8(&self) -> u8 { 
+        *self as u8 
+    }
+
+    /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
+    /// of two.
+    /// 
+    /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
+    pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)> where Self: Copy, {
+        Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
+    }
+
+    /// Returns the variant directly after `&self`. If `&self` is the last variant, this returns `None`.
+    pub fn next(&self) -> Option<Self> {
+        let i: usize = *self as usize;
+        let next = i + 1;
+        Self::from_repr(next)
+    }
 }
 
 /// Small wrapper around an array of responses for each chip.
@@ -205,6 +291,13 @@ impl<T> IndexByChip<T> {
     pub const fn get(&self, chip: ChipId) -> &T {
         let i: usize = chip as usize;
         &self.data[i]
+    }
+
+    /// Retrives the data for `chip`.
+    /// 
+    /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
+    pub const fn chip(&self, chip: ChipId) -> &T {
+        self.get(chip)
     }
 
     /// Retrieves a mutable reference to the data for `chip`.
@@ -257,7 +350,7 @@ impl<'borrow, T> IntoIterator for &'borrow mut IndexByChip<T> {
 /// Module that stores the mapping between the 10 GPIOs (see RAUX and AUX), the 13 cells, and the 7 thermistors.
 pub mod gpios {
     use super::cells::{CellId, IndexByCell};
-    use strum::{EnumCount, VariantArray};
+    use strum::{EnumCount, VariantArray, IntoEnumIterator};
     use crate::units::{Resistance, Temperature, Voltage};
 
     // u_Note: this mapping is based on TSECU-Shepherd. this should probably be checked as its possible i am not reading the code correctly
@@ -279,7 +372,8 @@ pub mod gpios {
     // (this zero-indexes the cells but the cells are 1-indexed in the enum)
 
     /// The 10 GPIOs (see RAUX and AUX).
-    #[derive(strum::EnumCount, strum::VariantArray)]
+    #[repr(usize)]
+    #[derive(strum::FromRepr, strum::EnumCount, strum::VariantArray, strum::EnumIter)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum GpioId {
         /// Thermistor for cells 1 and 2.
@@ -304,6 +398,33 @@ pub mod gpios {
         Gpio10,
     }
     pub const ADBMS6830B_NUM_GPIOS_PER_CHIP: usize = GpioId::COUNT;
+
+    impl GpioId {
+        /// Lets you iterate over each GPIO.
+        pub fn iter() -> <Self as IntoEnumIterator>::Iterator {
+            <Self as IntoEnumIterator>::iter()
+        }
+
+        /// Returns the variant directly after `&self`. If `&self` is the last variant, this returns `None`.
+        pub fn next(&self) -> Option<Self> {
+            let i: usize = *self as usize;
+            let next = i + 1;
+            Self::from_repr(next)
+        }
+
+        /// This `GpioId` represented as a raw u8.
+        pub fn as_u8(&self) -> u8 { 
+            *self as u8 
+        }
+
+        /// Iterates over the enum in pairs of (Self, Option<Self>). This is useful if you are processing things in pairs
+        /// of two.
+        /// 
+        /// For the last variant on enums where the size isn't divisible by 2, the second in the pair will be `None` (since there will be no variant there).
+        pub fn iter_pairs() -> impl Iterator<Item = (Self, Option<Self>)> where Self: Copy, {
+            Self::VARIANTS.chunks(2).map(|c| (c[0], c.get(1).copied()))
+        }
+    }
 
     /// Calculates the cell temperature of a 10,000 ohm NTP resistor (model 103).
     /// 
@@ -350,12 +471,22 @@ pub mod gpios {
         return calc_temp(&res);
     }
 
+    /// Struct for each cell temperature.
+    pub struct CellTemperatures { inner: IndexByCell<Temperature> }
+    impl core::ops::Deref for CellTemperatures {
+        type Target = IndexByCell<Temperature>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
     /// Struct that represents the GPIO voltages, but converted into temperatures.
     /// 
     /// The layout of this struct and the temperature calculations are based on the comment near the top of this module.
     pub struct ThermistorTemperatures {
         /// Temperatures for each cell. Note that some of the temperatures will be the same between some of the cells because some of the cells share the same thermistor.
-        pub cell_temperatures: IndexByCell<Temperature>,
+        pub cell_temperatures: CellTemperatures,
         /// First on-board temperature.
         pub on_board_temp_1: Temperature,
         /// Second on-board temperature.
@@ -363,32 +494,40 @@ pub mod gpios {
         /// Third on-board temperature.
         pub on_board_temp_3: Temperature,
     }
+    impl ThermistorTemperatures {
+        /// Gets the cell temperature for `cell`.
+        pub fn cell(&self, cell: CellId) -> &Temperature {
+            &self.cell_temperatures.cell(cell)
+        }
+    }
     impl From<IndexByGpio<Voltage>> for ThermistorTemperatures {
         fn from(gpios: IndexByGpio<Voltage>) -> Self {
             Self {
-                cell_temperatures: IndexByCell::from_fn(|cell| {
-                    match cell {
-                        CellId::Cell1 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
-                        CellId::Cell2 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
+                cell_temperatures: CellTemperatures {
+                    inner: IndexByCell::from_fn(|cell| {
+                        match cell {
+                            CellId::Cell1 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
+                            CellId::Cell2 => calc_cell_temp(gpios.get(GpioId::Gpio1)),
 
-                        CellId::Cell3 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
-                        CellId::Cell4 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
+                            CellId::Cell3 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
+                            CellId::Cell4 => calc_cell_temp(gpios.get(GpioId::Gpio2)),
 
-                        CellId::Cell5 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
-                        CellId::Cell6 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
+                            CellId::Cell5 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
+                            CellId::Cell6 => calc_cell_temp(gpios.get(GpioId::Gpio6)),
 
-                        CellId::Cell7 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
-                        CellId::Cell8 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
+                            CellId::Cell7 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
+                            CellId::Cell8 => calc_cell_temp(gpios.get(GpioId::Gpio7)),
 
-                        CellId::Cell9 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
-                        CellId::Cell10 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
+                            CellId::Cell9 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
+                            CellId::Cell10 => calc_cell_temp(gpios.get(GpioId::Gpio8)),
 
-                        CellId::Cell11 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
-                        CellId::Cell12 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
+                            CellId::Cell11 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
+                            CellId::Cell12 => calc_cell_temp(gpios.get(GpioId::Gpio9)),
 
-                        CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
-                    }
-                }),
+                            CellId::Cell13 => calc_cell_temp(gpios.get(GpioId::Gpio10)),
+                        }
+                    })
+                },
                 on_board_temp_1: calc_cell_temp(gpios.get(GpioId::Gpio3)),
                 on_board_temp_2: calc_cell_temp(gpios.get(GpioId::Gpio4)),
                 on_board_temp_3: calc_cell_temp(gpios.get(GpioId::Gpio5)),
@@ -399,6 +538,11 @@ pub mod gpios {
         /// Converts GPIO voltages to temperatures.
         pub fn to_temps(&self) -> ThermistorTemperatures {
             ThermistorTemperatures::from(*self)
+        }
+
+        /// Helper that gets the temperature of a specific cell.
+        pub fn cell_temp(&self, cell: CellId) -> Temperature {
+            *self.to_temps().cell_temperatures.get(cell)
         }
     }
 
@@ -420,6 +564,13 @@ pub mod gpios {
         pub const fn get(&self, gpio: GpioId) -> &T {
             let i: usize = gpio as usize;
             &self.data[i]
+        }
+
+        /// Retrives the data for `gpio`.
+        /// 
+        /// This is literally just an alias for `.get()`. It may be more readable in large method chains.
+        pub const fn gpio(&self, gpio: GpioId) -> &T {
+            self.get(gpio)
         }
 
         /// Retrieves a mutable reference to the data for `gpio`.

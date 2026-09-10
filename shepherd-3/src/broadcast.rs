@@ -8,6 +8,7 @@ use embassy_sync::{
 };
 
 /// Errors that can occur when trying to wait for a broadcast signal.
+#[derive(Debug)]
 pub enum WaitError {
     /// The maximum number of waiters has been reached, so the task cannot wait for the signal right now. This means you should probably increase the `N` of the `Broadcast`.
     MaxWaitersReached,

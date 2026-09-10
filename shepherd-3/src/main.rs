@@ -13,7 +13,7 @@ use embedded_hal_async::spi::SpiDevice;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use {defmt_rtt as _, panic_probe as _};
 
-mod segments;
+pub mod segments;
 pub mod hardfault;
 pub mod can;
 pub mod clocks;
@@ -70,6 +70,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(can::can_task(spawner, r.can).expect("Failed to spawn can::can_task()."));
     spawner.spawn(default_task(r.default).expect("Failed to spawn default_task()."));
     spawner.spawn(segments::segments_task(r.segment_isospi_linea, r.segment_isospi_lineb).expect("Failed to spawn segments::segments_task()."));
+    spawner.spawn(debug::segments_debug().expect("Failed to spawn debug::segments_debug()."));
 }
 
 /// pet the dog beat the heart

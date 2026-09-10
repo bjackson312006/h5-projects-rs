@@ -378,12 +378,7 @@ pub mod jobs {
         /// Initializes the JobDiagnostics to its defaults. Meant to be called only once at init time.
         const fn new() -> Self {
             Self {
-                inner: Mutex::new(JobDiagnostics {
-                    last_job_duration: Duration::MIN,
-                    max_job_duration: Duration::MIN,
-                    min_job_duration: Duration::MAX,
-                    error_count: 0,
-                })
+                inner: Mutex::new(JobDiagnostics::new())
             }
         }
 
@@ -449,7 +444,7 @@ pub mod jobs {
             Self {
                 last_job_duration: Duration::MIN,
                 max_job_duration: Duration::MIN,
-                min_job_duration: Duration::MIN,
+                min_job_duration: Duration::MAX,
                 error_count: 0,
             }
         }
