@@ -3,6 +3,83 @@
 use can_handler::NerCan;
 use embassy_stm32::can::Frame;
 
+/// CAN message types. This isn't really needed at all, the builder pattern is just somewhat messy for large CAN structs like this.
+/// u_TODO - eventually try adding stuff to `cangen` that generates these structs automatically so you don't need to use builder pattern
+pub mod types {
+    use super::Frame;
+    use cangen::ToCanFrame;
+
+    ///use cangen::{AlphaCellDataDebug, BetaCellDataDebug};
+
+    pub struct AlphaCellDataDebug {
+        pub therm: f32,
+        pub voltage_a: f32,
+        pub voltage_b: f32,
+        pub chip_id: u8,
+        pub cell_a: u8,
+        pub cell_b: u8,
+        pub discharging_a: bool,
+        pub discharging_b: bool,
+        pub cvs_a: bool,
+        pub cvs_b: bool,
+        pub ow_a: bool,
+        pub ow_b: bool,
+    }
+    impl AlphaCellDataDebug {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::AlphaCellDataDebug::new()
+            .with_therm(self.therm)
+            .with_voltage_a(self.voltage_a)
+            .with_voltage_b(self.voltage_b)
+            .with_chip_id(self.chip_id)
+            .with_cell_a(self.cell_a)
+            .with_cell_b(self.cell_b)
+            .with_discharging_a(self.discharging_a)
+            .with_discharging_b(self.discharging_b)
+            .with_cvs_a(self.cvs_a)
+            .with_cvs_b(self.cvs_b)
+            .with_ow_a(self.ow_a)
+            .with_ow_b(self.ow_b);
+            
+            frame.to_can_frame()
+        }
+    }
+
+    pub struct BetaCellDataDebug {
+        pub therm: f32,
+        pub voltage_a: f32,
+        pub voltage_b: f32,
+        pub chip_id: u8,
+        pub cell_a: u8,
+        pub cell_b: u8,
+        pub discharging_a: bool,
+        pub discharging_b: bool,
+        pub cvs_a: bool,
+        pub cvs_b: bool,
+        pub ow_a: bool,
+        pub ow_b: bool,
+    }
+    impl BetaCellDataDebug {
+        pub fn as_frame(&self) -> Frame {
+            let frame = cangen::BetaCellDataDebug::new()
+            .with_therm(self.therm)
+            .with_voltage_a(self.voltage_a)
+            .with_voltage_b(self.voltage_b)
+            .with_chip_id(self.chip_id)
+            .with_cell_a(self.cell_a)
+            .with_cell_b(self.cell_b)
+            .with_discharging_a(self.discharging_a)
+            .with_discharging_b(self.discharging_b)
+            .with_cvs_a(self.cvs_a)
+            .with_cvs_b(self.cvs_b)
+            .with_ow_a(self.ow_a)
+            .with_ow_b(self.ow_b);
+            
+            frame.to_can_frame()
+        }
+    }
+}
+
 embassy_stm32::bind_interrupts!(struct Irqs {
     FDCAN2_IT0 => embassy_stm32::can::IT0InterruptHandler<embassy_stm32::peripherals::FDCAN2>;
     FDCAN2_IT1 => embassy_stm32::can::IT1InterruptHandler<embassy_stm32::peripherals::FDCAN2>;

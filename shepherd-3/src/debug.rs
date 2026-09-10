@@ -18,6 +18,7 @@ pub async fn segments_debug() {
         ChipId, ChipKind, CellId, IndexByChip, IndexByCell, IndexByGpio,
     };
     use crate::units::{degree_celsius, volt, Temperature, Voltage};
+    use crate::can;
 
     // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
     let mut subscription = SEGMENTS_FRESH_DATA_SIGNAL.subscribe().expect("There are too many waiters on this signal. We should probably increase the waiters capacity.");
@@ -55,50 +56,51 @@ pub async fn segments_debug() {
                 match chip.kind() {
                     ChipKind::Alpha => {
                         for (cell_a, cell_b) in CellId::iter_pairs() {
-                            let frame = cangen::AlphaCellDataDebug::new()
-                                // Cell A is used for the therms here because cell_a and cell_b share the same thermistor
-                                .with_therm(temps.cell(cell_a).get::<degree_celsius>())
-                                .with_chip_id(chip.segment().as_u8())
+                            can::send(
+                                can::types::AlphaCellDataDebug {
+                                    therm:          temps.cell(cell_a).get::<degree_celsius>(),
+                                    chip_id:        chip.segment().as_u8(),
 
-                                // Cell A data.
-                                .with_voltage_a(volts.cell(cell_a).get::<volt>())
-                                .with_cell_a(cell_a.as_u8())
-                                .with_discharging_a(pwm.cell(cell_a).is_balancing())
-                                .with_cvs_a(cvs.cell(cell_a).is_set())
-                                .with_ow_a(false) // u_TODO - we don't calculate this yet, so for now, just set it to false
+                                    // Cell A data.
+                                    voltage_a:      volts.cell(cell_a).get::<volt>(),
+                                    cell_a:         cell_a.as_u8(),
+                                    discharging_a:  pwm.cell(cell_a).is_balancing(),
+                                    cvs_a:          cvs.cell(cell_a).is_set(),
+                                    ow_a:           false,
 
-                                // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
-                                .with_voltage_b(cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32))
-                                .with_cell_b(cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14))
-                                .with_discharging_b(cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false))
-                                .with_cvs_b(cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false))
-                                .with_ow_b(false); // u_TODO - we don't calculate this yet, so for now, just set it to false
-                            
-                            crate::can::send(frame.to_can_frame()).await;
+                                    // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
+                                    voltage_b:      cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
+                                    cell_b:         cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
+                                    discharging_b:  cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
+                                    cvs_b:          cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
+                                    ow_b:           false,
+                                }.as_frame()
+                            ).await;
                         }
                     },
+
                     ChipKind::Beta => {
                         for (cell_a, cell_b) in CellId::iter_pairs() {
-                            let frame = cangen::BetaCellDataDebug::new()
-                                // Cell A is used for the therms here because cell_a and cell_b share the same thermistor
-                                .with_therm(temps.cell(cell_a).get::<degree_celsius>())
-                                .with_chip_id(chip.segment().as_u8())
+                            can::send(
+                                can::types::BetaCellDataDebug {
+                                    therm:          temps.cell(cell_a).get::<degree_celsius>(),
+                                    chip_id:        chip.segment().as_u8(),
 
-                                // Cell A data.
-                                .with_voltage_a(volts.cell(cell_a).get::<volt>())
-                                .with_cell_a(cell_a.as_u8())
-                                .with_discharging_a(pwm.cell(cell_a).is_balancing())
-                                .with_cvs_a(cvs.cell(cell_a).is_set())
-                                .with_ow_a(false) // u_TODO - we don't calculate this yet, so for now, just set it to false
+                                    // Cell A data.
+                                    voltage_a:      volts.cell(cell_a).get::<volt>(),
+                                    cell_a:         cell_a.as_u8(),
+                                    discharging_a:  pwm.cell(cell_a).is_balancing(),
+                                    cvs_a:          cvs.cell(cell_a).is_set(),
+                                    ow_a:           false,
 
-                                // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
-                                .with_voltage_b(cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(100_f32))
-                                .with_cell_b(cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(100))
-                                .with_discharging_b(cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false))
-                                .with_cvs_a(cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false))
-                                .with_ow_a(false); // u_TODO - we don't calculate this yet, so for now, just set it to false
-
-                            crate::can::send(frame.to_can_frame()).await;
+                                    // Cell B data. When cell_b is `None` (due to the enum having an odd number of variants), just pass in random obviously-wrong numbers
+                                    voltage_b:      cell_b.map(|cell_b| volts.cell(cell_b).get::<volt>()).unwrap_or(14_f32),
+                                    cell_b:         cell_b.map(|cell_b| cell_b.as_u8()).unwrap_or(14),
+                                    discharging_b:  cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
+                                    cvs_b:          cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
+                                    ow_b:           false,
+                                }.as_frame()
+                            ).await;
                         }
                     }
                 }
