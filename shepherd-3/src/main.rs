@@ -16,7 +16,6 @@ use {defmt_rtt as _, panic_probe as _};
 pub mod segments;
 pub mod hardfault;
 pub mod can;
-pub mod can_handler;
 pub mod clocks;
 pub mod units;
 pub mod broadcast;
