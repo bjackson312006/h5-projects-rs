@@ -105,6 +105,16 @@ pub async fn send(frame: Frame) {
         }
     }
 }
+/// Tries to add a frame to the outgoing CAN channel.
+pub fn try_send(frame: Frame) -> Result<(), ()> { 
+    match channels::OUTGOING.try_send(frame) {
+        Ok(_) => { return Ok(()); },
+        Err(_) => {
+            defmt::warn!("Tried to add a frame to the OUTGOING Channel, but the Channel was full. This is not a failure, because we will .await until the Channel is able to accept the frame. However, consider increasing the capacity of the Channel if this is occurring often.");
+            return Err(());
+        }
+    }
+}
 /// Get a frame from the incoming CAN channel.
 /// (this doesn't need to check for an error because of `receive()` is empty there is no problem, it just means there is no pending messages)
 pub async fn recieve() -> Frame { channels::INCOMING.receive().await }

@@ -34,6 +34,7 @@ pub async fn segments_debug() {
         let pwm_raw = segments::cache().get_pwm();
         let status_c_raw = segments::cache().get_status_c();
         let s_voltages_raw = segments::cache().get_s_voltages();
+        let fault_counts = segments::cache().get_fault_counts();
 
         // u_TODO - should probably inspect the PEC status and other metadata before transforming into NiceData, but i don't think TSECU-Shepherd does that so for now this is probably fine
 
@@ -46,6 +47,7 @@ pub async fn segments_debug() {
         let Ok(_s_voltages) = s_voltages_raw.try_nice() else { continue; };
 
         // Iterate through every chip and send data over CAN.
+        #[cfg(true)]
         '_can: {
             for chip in ChipId::iter() {
                 let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
@@ -56,7 +58,7 @@ pub async fn segments_debug() {
                 match chip.kind() {
                     ChipKind::Alpha => {
                         for (cell_a, cell_b) in CellId::iter_pairs() {
-                            can::send(
+                            match can::try_send(
                                 can::types::AlphaCellDataDebug {
                                     therm:          temps.cell(cell_a).get::<degree_celsius>(),
                                     chip_id:        chip.segment().as_u8(),
@@ -75,13 +77,16 @@ pub async fn segments_debug() {
                                     cvs_b:          cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
                                     ow_b:           false,
                                 }.as_frame()
-                            ).await;
+                            ) {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
                         }
                     },
 
                     ChipKind::Beta => {
                         for (cell_a, cell_b) in CellId::iter_pairs() {
-                            can::send(
+                            match can::try_send(
                                 can::types::BetaCellDataDebug {
                                     therm:          temps.cell(cell_a).get::<degree_celsius>(),
                                     chip_id:        chip.segment().as_u8(),
@@ -100,7 +105,10 @@ pub async fn segments_debug() {
                                     cvs_b:          cell_b.map(|cell_b| pwm.cell(cell_b).is_balancing()).unwrap_or(false),
                                     ow_b:           false,
                                 }.as_frame()
-                            ).await;
+                            ) {
+                                Ok(_) => (),
+                                Err(_) => (),
+                            }
                         }
                     }
                 }
@@ -117,11 +125,13 @@ pub async fn segments_debug() {
 
                 let volts = filtered_cell_voltages.chip(chip);
                 let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
+                let comparison_fault_counts = fault_counts.chip(chip).csxflt.idx_by_cell();
 
                 for cell in CellId::iter() {
                     // Cell-level logs.
                     defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Cell{=u8}/Voltage", chip.as_u8(), cell.as_u8()], desc = "Cell voltage, in volts.", "{=f32}", volts.cell(cell).get::<volt>());
                     defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Cell{=u8}/Temperature", chip.as_u8(), cell.as_u8()], desc = "Cell temperautre, in celsius.", "{=f32}", temps.cell(cell).get::<degree_celsius>());
+                    defmt_monitor::monitor!(["SegmentDebug/Chips/Chip{=u8}/Cell{=u8}/ComparisonFaultCounts", chip.as_u8(), cell.as_u8()], desc = "Total number of comparison faults that have been read back for this cell so far since boot.", "{=u32}", comparison_fault_counts.cell(cell));
                 }
             }
         }
