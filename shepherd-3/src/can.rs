@@ -1,6 +1,8 @@
 //! CAN stuff.
 
-use can_handler::NerCan;
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use crate::can_handler::NerCan;
 use embassy_stm32::can::Frame;
 
 /// CAN message types. This isn't really needed at all, the builder pattern is just somewhat messy for large CAN structs like this.
@@ -80,9 +82,46 @@ pub mod types {
     }
 }
 
+/// Number of times the FDCAN2 IT0 interrupt has fired.
+///
+/// u_TODO - bring-up instrumentation, remove along with the rest of the CAN debug scaffolding.
+///
+/// Embassy's handler clears the `IR` flags it services on the way in, so a latched `IR.TC`
+/// only shows that the ISR is not running *right now*. This counter shows whether it has
+/// ever run at all, which is what separates "nothing is reaching the bus" from "TX
+/// completions are never waking the writer".
+pub static IT0_IRQ_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Number of times the FDCAN2 IT1 interrupt has fired.
+///
+/// Nothing should arrive here: `ILS` is left at its reset value (all sources routed to
+/// line 0) and embassy's IT1 handler is empty. A nonzero count means interrupt routing is
+/// not what we assume.
+pub static IT1_IRQ_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Counts FDCAN2 IT0 entries. Runs *alongside* embassy's handler, not instead of it.
+struct It0Counter;
+impl embassy_stm32::interrupt::typelevel::Handler<embassy_stm32::interrupt::typelevel::FDCAN2_IT0>
+    for It0Counter
+{
+    unsafe fn on_interrupt() {
+        IT0_IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Counts FDCAN2 IT1 entries. Runs *alongside* embassy's handler, not instead of it.
+struct It1Counter;
+impl embassy_stm32::interrupt::typelevel::Handler<embassy_stm32::interrupt::typelevel::FDCAN2_IT1>
+    for It1Counter
+{
+    unsafe fn on_interrupt() {
+        IT1_IRQ_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 embassy_stm32::bind_interrupts!(struct Irqs {
-    FDCAN2_IT0 => embassy_stm32::can::IT0InterruptHandler<embassy_stm32::peripherals::FDCAN2>;
-    FDCAN2_IT1 => embassy_stm32::can::IT1InterruptHandler<embassy_stm32::peripherals::FDCAN2>;
+    FDCAN2_IT0 => embassy_stm32::can::IT0InterruptHandler<embassy_stm32::peripherals::FDCAN2>, It0Counter;
+    FDCAN2_IT1 => embassy_stm32::can::IT1InterruptHandler<embassy_stm32::peripherals::FDCAN2>, It1Counter;
 });
 
 mod channels {
@@ -91,9 +130,9 @@ mod channels {
     use embassy_sync::channel::Channel;
 
     /// Channel for frames that we recieve.
-    pub(super) static INCOMING: Channel<ThreadModeRawMutex, Frame, 16> = Channel::new();
+    pub(super) static INCOMING: Channel<ThreadModeRawMutex, Frame, 256> = Channel::new();
     /// Channel for frames we queue to send.
-    pub(super) static OUTGOING: Channel<ThreadModeRawMutex, Frame, 16> = Channel::new();
+    pub(super) static OUTGOING: Channel<ThreadModeRawMutex, Frame, 256> = Channel::new();
 }
 /// Add a frame to the outgoing CAN channel.
 pub async fn send(frame: Frame) { 
@@ -150,5 +189,5 @@ pub async fn can_task(spawner: embassy_executor::Spawner, r: crate::CanResources
 
     // u_TODO probably should add can fitlers and such here
 
-    spawner.spawn(can_handler::can_handler(ner_can.can_configurator, channels::INCOMING.sender(), channels::OUTGOING.receiver()).expect("Failed to spawn can_handler::can_handler()."),);
+    spawner.spawn(crate::can_handler::can_handler(spawner, ner_can.can_configurator, channels::INCOMING.sender(), channels::OUTGOING.receiver()).expect("Failed to spawn can_handler::can_handler()."),);
 }
