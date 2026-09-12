@@ -19,9 +19,6 @@ pub mod alias {
         gpio::Output,
         spi::{ Spi, mode::Master },
     };
-    use crate::segments::{
-        chips::ChipId,
-    };
     use super::ADBMS6830B_NUM_CHIPS;
 
     /// Type alias representing a SPI controller that implements `SpiDevice` from `embedded_hal_async`.
@@ -629,9 +626,8 @@ pub mod jobs {
 /// Module for the main Segments task. (this is the task that owns the segments SPI peripheral and does all the actual SPI reads and cache updates. any other tasks just read the cached data but don't actually make any spi commands themselves)
 pub mod task {
     use super::{Segments};
-    use crate::segments::{cache, core::jobs};
     use crate::broadcast::Broadcast;
-    use embassy_sync::blocking_mutex::{Mutex, raw::ThreadModeRawMutex};
+    use embassy_sync::blocking_mutex::{raw::ThreadModeRawMutex};
     use embassy_time::{Instant, Duration, Timer};
 
     /// `Broadcast` static for segments task. This allows the Segments task to flag other tasks when it successfully runs the jobs.

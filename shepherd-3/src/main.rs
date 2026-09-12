@@ -3,14 +3,11 @@
 #[macro_use]
 extern crate uom;
 
-use defmt::{Debug2Format, info, warn};
+use defmt::{info};
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::wdg::IndependentWatchdog;
-use embassy_stm32::{dma, gpio, peripherals, spi, time::mhz, Peri};
-use embassy_time::{Delay, Timer};
-use embedded_hal_async::spi::SpiDevice;
-use embedded_hal_bus::spi::ExclusiveDevice;
+use embassy_stm32::{peripherals, Peri};
+use embassy_time::{Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 pub mod segments;

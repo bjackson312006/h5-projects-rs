@@ -15,9 +15,8 @@ use adbms6830b::{chip::registers::{
     results::{AuxillaryA, AuxillaryB, AuxillaryC, AuxillaryD},
 }, turnkey::api::LineId};
 use adbms6830b::line::Error;
-use crate::segments::core::alias::{SpiError, Service};
+use crate::segments::core::alias::{SpiError};
 use adbms6830b::line::PecStatus;
-use super::chips::ChipId;
 use core::cell::{Cell};
 use super::chips::IndexByChip;
 use super::core::alias;
@@ -114,8 +113,6 @@ impl<R: ReadableGroup> RegisterCache<R> {
 
     /// Reads the register and updates the cache.
     pub async fn update(&self, api: &mut alias::Api) -> Result<(), UpdateError> {
-        use strum::EnumCount;
-        use super::chips::ChipId;
 
         let data: [Reading<R>; ADBMS6830B_NUM_CHIPS] = {
             let responses = api.read::<R>().await;
@@ -1539,9 +1536,8 @@ pub mod status_d {
 
 /// Register groups AuxillaryA through D.
 pub mod aux {
-    use core::ops::Index;
 
-use super::*;
+    use super::*;
     use crate::units::Voltage;
     use uom::si::{electric_potential::microvolt};
     use super::alias;

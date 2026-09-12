@@ -1,7 +1,5 @@
 use strum::{VariantArray, EnumCount, IntoEnumIterator};
 
-use super::core::alias;
-
 pub mod cells {
     use strum::{VariantArray, EnumCount, IntoEnumIterator};
 

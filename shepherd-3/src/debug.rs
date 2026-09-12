@@ -1,10 +1,5 @@
 //! Debug data for segments.
 
-use adbms6830b::chip::commands::filtered_cell_voltage;
-use cangen::ToCanFrame;
-use strum::VariantArray;
-use uom::si::angle::degree;
-
 use crate::segments;
 
 /// Task that sends out debug segments data.
@@ -15,9 +10,9 @@ use crate::segments;
 pub async fn segments_debug() {
     use segments::{
         SEGMENTS_FRESH_DATA_SIGNAL,
-        ChipId, ChipKind, CellId, IndexByChip, IndexByCell, IndexByGpio,
+        ChipId, ChipKind, CellId
     };
-    use crate::units::{degree_celsius, volt, Temperature, Voltage};
+    use crate::units::{degree_celsius, volt};
     use crate::can;
 
     // Subscribe to Segments fresh data signal subscription so we are notified when new segments data comes in.
@@ -34,7 +29,7 @@ pub async fn segments_debug() {
         let pwm_raw = segments::cache().get_pwm();
         let status_c_raw = segments::cache().get_status_c();
         let s_voltages_raw = segments::cache().get_s_voltages();
-        let fault_counts = segments::cache().get_fault_counts();
+        let _fault_counts = segments::cache().get_fault_counts();
 
         // u_TODO - should probably inspect the PEC status and other metadata before transforming into NiceData, but i don't think TSECU-Shepherd does that so for now this is probably fine
 
@@ -125,7 +120,7 @@ pub async fn segments_debug() {
 
                 let volts = filtered_cell_voltages.chip(chip);
                 let temps = redundant_aux.chip(chip).to_temps().cell_temperatures;
-                let comparison_fault_counts = fault_counts.chip(chip).csxflt.idx_by_cell();
+                let comparison_fault_counts = _fault_counts.chip(chip).csxflt.idx_by_cell();
 
                 for cell in CellId::iter() {
                     // Cell-level logs.
